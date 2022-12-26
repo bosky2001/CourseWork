@@ -41,8 +41,8 @@ int main(void){
     
     while(1) {
     		
-		 inc_light(0.3,1.0);
-		 dec_light(0.7,1.0);
+		 inc_light(1.0,1.0);
+		 dec_light(1.0,1.0);
 
 		 
 		 _delay_ms(2000);
