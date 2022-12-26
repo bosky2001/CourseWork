@@ -1,7 +1,5 @@
 # Lab 2 - Capturing Inputs
 
-Sheil Sarda <sheils@seas.upenn.edu>
-
 ## 1. Switches, Debouncing and Input Capture
 
 #### C Code
