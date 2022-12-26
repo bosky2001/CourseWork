@@ -146,8 +146,6 @@ int main(void){
 
 ```` 
 
-#### [Video Demonstration](https://www.youtube.com/watch?v=AvenU_oT04E)
-
 ## 4. Practice with Loops
 
 ### 1.4.1 Make the External LED Pulse
@@ -258,9 +256,8 @@ Uses the following defined variables:
 - `MAX_INTENSITY`
 - `FREQ_HZ`
 - `PRESCALAR`
-- `SYS_CLOCK`
 
-Assumes LED is plugged into Port `B5`, and that Timer 1 is not being used.
+Assumes LED is plugged into Port `C6`, and that Timer 1 is not being used.
 
 #### Make the LED blink as if it were a heartbeat
 
