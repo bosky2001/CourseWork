@@ -26,7 +26,8 @@ void loop() {
 ````
 
 ### 4.1.3 Website to display and control the duty cycle and frequency of LED
-Webpage code
+**Webpage to receive and display current frequency and duty cycle**
+
 ````cpp
 const char body[] PROGMEM = R"===(
 <!DOCTYPE html>
@@ -106,8 +107,6 @@ const char* pass = "password";         // this is the password
 #define LEDC_RESOLUTION  ((1<<LEDC_RESOLUTION_BITS)-1) 
 #define LED_PIN           4
 
-
-
 /*****************/
 /* web handler   */
 void handleRoot() {
@@ -156,9 +155,7 @@ void setup(){
   h.begin();
   h.attachHandler("/ ",handleRoot);
   h.attachHandler("/slider1?val=",handleDuty);
-  h.attachHandler("/slider2?val=",handleFreq);
-  
-  
+  h.attachHandler("/slider2?val=",handleFreq); 
 }
 
 void loop(){
@@ -172,7 +169,7 @@ void loop(){
 ````
 
 ### 4.1.4 Variable Direction and Speed of DC Motor
-Webpage to control the Motor direction and speed
+**Webpage to control the Motor direction and speed**
 ````c
 const char body[] PROGMEM=R"===(
 <!DOCTYPE html>
