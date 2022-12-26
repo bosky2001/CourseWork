@@ -13,7 +13,7 @@ Planned to make  Vinycl CD record player, with the input a miniature version of 
 | Part | Quantity | In Kit |
 |--|--|--|
 | Long stem  potentiometers | 2 | Pick-up |
-| SG90 Servo | 2 | Have |
+| SG90 Servo | 2 | Pick-up |
 | | |
 
 ### 3.1.2 ADC Subroutines
