@@ -8,16 +8,16 @@
 	<worldbody>
         <light diffuse=".5 .5 .5" pos="0 0 3" dir="0 0 -1"/>
 		<geom type="plane" size="2 1 0.1" rgba=".9 0 0 1"/>
-		<body pos="0 0 3.5" euler="0 180 0">
+		<body pos="0 0 2.5" euler="0 180 0">
 			<!-- <joint name="x" type="slide" pos="0 0 -0.5"  axis="1 0 0" /> -->
 			<joint name="z" pos="0 0 -0.5" type="slide"  axis="0 0 1" />
-			<geom type="sphere" size="0.13" pos="0 0 -0.5" rgba="0 .8 .8 1" mass="1"/>
+			<geom type="sphere" size="0.13" pos="0 0 -0.5" rgba="0 .8 .8 1" mass="5"/>
 			
 			<joint name="thigh" type="hinge" axis = "0 -1 0" pos="0 0 -0.5"/>
-			<geom type="cylinder" size="0.05 0.5" rgba="0.5 .5 0.5 1" mass=".1"/>
+			<geom type="cylinder" size="0.05 0.5" rgba="0.5 .5 0.5 1" mass=".5"/>
 			<body pos="0 0 1" euler="0 0 0">
 				<joint name="knee" type="hinge" axis = "0 -1 0" pos="0 0 -0.5"/>
-				<geom type="cylinder" size="0.05 0.5" rgba="0.7 0.7 .7 1" mass=".1"/>
+				<geom type="cylinder" size="0.05 0.5" rgba="0.7 0.7 .7 1" mass=".5"/>
 				<body pos="0 0 0.5" name="foot">
 				<geom type="sphere" size="0.07"  rgba="0.9 0.9 0 1" mass="0.1"/>
 				</body>
