@@ -4,11 +4,12 @@ from mujoco.glfw import glfw
 import numpy as np
 from numpy.linalg import inv
 import os
+from scipy.spatial.transform import Rotation
 import matplotlib.pyplot as plt
 from enum import Enum
 import time
-xml_path = 'leg.xml'
-simend = 30
+xml_path = 'leg2.xml'
+simend = 3
 
 step_no = 0
 
@@ -21,7 +22,14 @@ class Params(Enum):
 
     l1 = 1
     l2 = 1
-    pass
+    r1 = 0.05
+    r2 = 0.05
+    r_toe = 0.07
+
+    I1 = (1/12)* M_l1*(l1**2 + 3*r1**2)
+    I2 = (1/12)* M_l2*(l2**2 + 3*r2**2)
+    I_toe = (2/5)*M_toe*r_toe**2
+    
 class Index(Enum):
 
     #x = 0
@@ -30,12 +38,7 @@ class Index(Enum):
     q2 = 2
 
 
-FSM_AIR1 = 0
-FSM_STANCE1 = 1
-FSM_STANCE2 = 2
-FSM_AIR2 = 3
 
-fsm = FSM_AIR1
 mode = 0
 
 # For callback functions
@@ -129,7 +132,7 @@ def vhad_stance(model, data):
     kd = 1
     w_i = 0 #kd*zdot*np.sin(phi)
     fx = 25*(-x)+ 15*(-dX[0])
-    u = np.array([fx, 0, w*w*(p-z)- beta*zdot -ka*np.cos(phi) ])  
+    u = np.array([0, 0, w*w*(p-z)- beta*zdot -ka*np.cos(phi) ])  
     J = foot_jacobian(model, data)
 
     g =  np.array([0, 0, -9.81 * Params.M_total.value])
@@ -149,52 +152,24 @@ def vhad_control(model, data):
     
     #v_flight(model, data, stance_h)
     global mode
-    
+    z = forward_kinematics(model, data)[2]
+    delta_z = abs(z-stance_h)
     if mode == 0:
  
-        z = forward_kinematics(model, data)[2]
-        delta_z = abs(z-stance_h)
+        v_flight(model, data, stance_h)
+
         if delta_z >= tol:
             
             mode = 1
     
-    if mode == 1:
-        
-        z = forward_kinematics(model, data)[2]
-        delta_z = abs(z-stance_h)
+    elif mode == 1:
+        vhad_stance(model, data)
         if delta_z <= tol:
             mode = 0
 
     modes.append(mode)
     z_height.append(forward_kinematics(model, data)[2])
 
-    if mode == 0:
-        v_flight(model, data, stance_h)
-    
-    if mode == 1:
-        vhad_stance(model, data)
-    # def zvel():
-    #     dX = foot_jacobian(model, data) @ data.qvel[Index.q1.value:]
-    #     zdot = dX[2]
-    #     return zdot
-    # zdot = zvel()
-    # #falling
-    # if zdot < 0:
-    #     mode = 0
-    #     if zvel() > 0:
-    #         mode = 1
-    # #post 
-    # if zdot > 0:
-    #     mode = 0
-    #     if zvel() < 0:
-    #         mode = 1   
-
-    # modes.append(mode)
-    # z_height.append(zvel())
-    # if mode == 0:
-    #     v_flight(model, data, stance_h)
-    # else:
-    #     vhad_stance(model, data) 
     
     
 def init_controller(model,data):
@@ -276,50 +251,138 @@ def constraint(data):
         f = data.efc_force
         return J@f
     else: return np.zeros(4)
+
 def g_force(data):
-    pass
+
+    G = np.zeros(3)
+
+    g = -9.81
+    q1 = data.qpos[Index.q1.value]
+    q2 = data.qpos[Index.q2.value]
+
+    l1 = Params.l1.value
+    l2 = Params.l2.value
+
+    m_l1 = Params.M_l1.value
+    m_l2 = Params.M_l2.value
+    m_toe = Params.M_toe.value
+    G[0] = g*(Params.M_total.value)
+    G[1] = 0.5*g*(l1*(m_l1 + 2*(m_l2+m_toe))*np.sin(q1) + l2*(m_l2+2*m_toe)*np.sin(q1+q2))
+    G[2] = 0.5*l2*g*(m_l2 + 2*m_toe)*np.sin(q1+q2)
+
+    return G
     
-tau_prev = P_prev =  np.zeros(4)
+tau_prev = P_prev =  np.zeros(3)
 
+def get_M(model, data):
+    M = np.zeros((model.nq, model.nq))
+
+    q1 = data.qpos[Index.q1.value]
+    q2 = data.qpos[Index.q2.value]
+
+    l1 = Params.l1.value
+    l2 = Params.l2.value
+
+    m_l1 = Params.M_l1.value
+    m_l2 = Params.M_l2.value
+    m_toe = Params.M_toe.value
+
+    I_l1 = Params.I1.value
+    I_l2 = Params.I2.value
+    I_t = Params.I_toe.value
+
+    M[0,0] = Params.M_total.value
+    M[0,1] = M[1,0] = 0.5*( l1 * (m_l1 + 2 * (m_l2 + m_toe))*np.sin(q1) \
+                      + l2 * (m_l2 + 2*m_toe) * np.sin(q1 + q2))
+    
+    M[0,2] = M[2,0] = 0.5*l2*(m_l2 + 2*m_toe) * np.sin(q1 + q2) #i have autism
+
+    
+    M[1,2] = M[2,1] = I_l2 +I_t+ 0.25*(l2**2)*(m_l2 + 4*m_toe) + 0.5*l1*l2*(m_l2 + 2*m_toe)*np.cos(q2)
+    
+    M[2, 2] = I_l2 + (l2**2)*(0.25*m_l2 + m_toe)
+
+    M[1, 1] =  I_l1 + I_l2 + I_t + (l1**2)*(0.25*m_l1 + m_l2 + m_toe) \
+               + 0.25*(l2**2)*( m_l2 + 4*m_toe) \
+               + l1*l2*(m_l2 + 2*m_toe)*np.cos(q2)
+
+    return M
 def get_C(model, data):
-    pass
+    C = np.zeros((3,3))
+    q1 = data.qpos[Index.q1.value]
+    q2 = data.qpos[Index.q2.value]
 
+    q1dot = data.qvel[Index.q1.value]
+    q2dot = data.qvel[Index.q2.value]
+
+    l1 = Params.l1.value
+    l2 = Params.l2.value
+
+    m_l1 = Params.M_l1.value
+    m_l2 = Params.M_l2.value
+    m_toe = Params.M_toe.value
+
+    I_l1 = Params.I1.value
+    I_l2 = Params.I2.value
+    I_t = Params.I_toe.value
+    C[0,1] = 0.5*(l1*(m_l1 + 2*(m_l2 + m_toe))*np.cos(q1) \
+                  + l2*(m_l2 + 2*m_toe)*np.cos(q1+q2)) *q1dot \
+                  + 0.5*l2*(m_l2+2*m_toe)*np.cos(q1 +q2)*q2dot
+
+
+    C[0,2] =  0.5*l2*(m_l2+2*m_toe)*np.cos(q1 + q2)*(q1dot + q2dot)
+
+    C[1,1] = -0.5*l1*l2*(m_l2+2*m_toe)*np.sin(q2)*q2dot
+
+    C[1,2] = -0.5*l1*l2*(m_l2 + 2*m_toe)*np.sin(q2)*(q1dot + q2dot)
+
+    C[2,1] = 0.5*l1*l2*(m_l2 + 2*m_toe)*np.sin(q2)*q1dot
+
+    return C
 
 def momentum_observer(model,data):
 
     global P_prev, tau_prev
 
     #Constructing M from the sparse matrix qM
-    M = np.zeros((model.nv, model.nv))
-    _functions.mj_fullM(model, M, data.qM)
+    #M = np.zeros((model.nv, model.nv))
+    #_functions.mj_fullM(model, M, data.qM)
+    M = get_M(model, data) #3X3
 
     #GETTING JACOBIAN
     jac_foot = np.zeros((3, model.nv))
     mj.mj_jacSubtreeCom(model, data, jac_foot, model.body('foot').id)
 
-    C = get_C(model, data) 
+    C = get_C(model, data)  #3X3
     # C = get_C(model, data) # Cq + G term
-    v = data.qvel
-    tau_ext = data.actuator_force
-    P = M@v
+    v = np.array([0, data.qvel[1], data.qvel[2]])
     
+    #Z joint has no force
+    tau_ext = np.array([0, data.actuator_force[0], data.actuator_force[1]]) #3
+    
+    J = foot_jacobian(model, data)
+    P = M@v  # 
     # observer 
-    t_delta = 0.001
+    t_delta = 1/1000
     freq = 100 # cut-off frequency 
     gamma = np.exp(-freq*t_delta)
     beta = (1-gamma)/(gamma*t_delta)
-    alpha_k = beta*P + tau_ext + C.T@data.qvel - g_force(data)
+    alpha_k = beta*P + tau_ext + C.T@v - g_force(data)
     tau_d = beta*(P -gamma*P_prev) + gamma*(tau_prev)+(gamma-1)*alpha_k  
 
     tau_prev = tau_d
     P_prev = P
 
-    
+    # S = np.array([[0,1,0],[0,0,1]])
+
+    # J = np.zeros((3,3)) 
+    # J[:,0] = foot_jacobian(model, data)[:,0]
+    # J[:,2] = foot_jacobian(model, data)[:, 1]
 
     #contact force from joint torque
-    # hip_rot = np.array([[np.cos(q),0,np.sin(q)],[0,1,0],[-np.sin(q),0,np.cos(q)]])
-    J = None
-    contact = np.linalg.pinv(J.T) @ tau_d
+    hip_rot = np.array([[np.cos(q),0,np.sin(q)],[0,1,0],[-np.sin(q),0,np.cos(q)]])
+    
+    contact = np.linalg.pinv ( J.T) @ tau_d[1:]
     return contact
 
 
@@ -330,7 +393,7 @@ abspath = os.path.join(dirname + "/" + xml_path)
 xml_path = abspath
 
 # MuJoCo data structures
-model = mj.MjModel.from_xml_path('leg.xml')  # MuJoCo model
+model = mj.MjModel.from_xml_path('leg2.xml')  # MuJoCo model
 data = mj.MjData(model)                # MuJoCo data
 cam = mj.MjvCamera()                        # Abstract camera
 opt = mj.MjvOption()                        # visualization options
@@ -382,6 +445,10 @@ contact_z = []
 M = np.zeros((model.nv,model.nv))
 jac_com = np.zeros((3, model.nv))
 
+
+obs_x =[]
+obs_y =[]
+obs_z =[]
 # theta1 = []
 # theta2 = []
 
@@ -389,7 +456,7 @@ zdes = -1.5
 while not glfw.window_should_close(window):
     simstart = data.time
 
-    while (data.time - simstart < 1.0/60.0):
+    while (data.time - simstart < 1.0/1000.0):
         #simulation step
         mj.mj_step(model, data)
         # Apply control
@@ -398,19 +465,42 @@ while not glfw.window_should_close(window):
         #vhad_stance(model, data)
         vhad_control(model, data)
 
-    # theta1.append(data.qpos[1])
-    # theta2.append(data.qpos[2])
+    for j,c in enumerate(data.contact):
+        mj.mj_contactForce(model, data, j, forcetorque)
+
+    q = data.qpos[Index.q1.value]  + data.qpos[Index.q2.value] 
+    rot = Rotation.from_quat(data.xquat[4])
+    toe_frame = rot.as_matrix()#np.array([[np.cos(q),0,-np.sin(q)],[0,1,0],[np.sin(q),0,np.cos(q)]])
+    forcetorque_w= toe_frame@forcetorque[0:3]
     
+    contact_x.append(forcetorque_w[0])
+    contact_y.append(forcetorque_w[1])
+    contact_z.append(forcetorque_w[2])
+    
+
     if (data.time>=simend):
         break;
     
+    
+    mom_obs = momentum_observer(model= model, data= data)
+    obs_x.append(mom_obs[0])
+    obs_y.append(mom_obs[1])
+    obs_z.append(mom_obs[2])
+    
+    print(mom_obs)
     #print(mode)
     # get framebuffer viewport
     viewport_width, viewport_height = glfw.get_framebuffer_size(
         window)
     viewport = mj.MjrRect(0, 0, viewport_width, viewport_height)
 
-
+    # print("Mass is {}".format(model.body_mass))
+    # M = np.zeros((model.nv, model.nv))
+    # _functions.mj_fullM(model, M, data.qM)
+    # print(M)
+    # print(" And ")
+    # print(get_M(model, data))
+    # print("----------------------")
     # Show joint frames
     opt.flags[mj.mjtVisFlag.mjVIS_JOINT] = 1
 
@@ -443,4 +533,18 @@ glfw.terminate()
 plt.plot(modes, color = 'r', linestyle = '--')
 plt.plot(z_height)
 #plt.axhline(zdes,color = 'y', linestyle = '--')
+
+fig, axs = plt.subplots(3)
+axs[0].plot(contact_x)
+axs[0].plot(obs_x)
+axs[0].set_title("X-Contact")
+
+axs[1].plot(contact_y)
+axs[1].plot(obs_y)
+axs[1].set_title("Y-Contact")
+
+axs[2].plot(contact_z)
+axs[2].plot(obs_z)
+axs[2].set_title("Z-Contact")
+plt.subplots_adjust(hspace=0.5)
 plt.show()
