@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from enum import Enum
 import time
 xml_path = 'leg2.xml'
-simend = 3
+simend = 7
 
 step_no = 0
 
@@ -32,10 +32,10 @@ class Params(Enum):
     
 class Index(Enum):
 
-    #x = 0
-    z = 0
-    q1 = 1
-    q2 = 2
+    x = 0
+    z = 1
+    q1 = 2
+    q2 = 3
 
 
 
@@ -50,10 +50,10 @@ lasty = 0
 error_i = np.zeros(2)
 
 def forward_kinematics(model,data):
-    q1 = data.qpos[1]
-    q2 = data.qpos[2]
+    q1 = data.qpos[Index.q1.value]
+    q2 = data.qpos[Index.q2.value]
     g= 1
-    x = Params.l1.value * np.sin(q1) + Params.l2.value * np.sin(q1+q2)
+    x = - Params.l1.value * np.sin(q1) - Params.l2.value * np.sin(q1+q2)
     y = 0
     z = -Params.l1.value * np.cos(q1) - Params.l2.value * np.cos(q1+q2)
     return np.array([x,y,z])
@@ -62,8 +62,8 @@ def foot_jacobian(model, data):
     J = np.zeros((3,2))
     q1 = data.qpos[Index.q1.value]
     q2 = data.qpos[Index.q2.value]
-    J[0,0] =  Params.l1.value * np.cos(q1)+  Params.l2.value * np.cos(q1+q2)
-    J[0,1] =  Params.l2.value * np.cos(q1+q2)
+    J[0,0] = - Params.l1.value * np.cos(q1) - Params.l2.value * np.cos(q1+q2)
+    J[0,1] = - Params.l2.value * np.cos(q1+q2)
     
     J[2,0] =  Params.l1.value * np.sin(q1)+ Params.l2.value * np.sin(q1+q2)
     J[2,1]=   Params.l2.value * np.sin(q1+q2)
@@ -97,13 +97,117 @@ def pid_controller(model, data):
     data.ctrl[0] = tau[0] - ff[1]
     data.ctrl[1] =  tau[1]- ff[2]
 
+def radial(model, data):
+    [x,_,z] = forward_kinematics(model, data)
+
+    q1 = data.qpos[Index.q1.value]
+    q2 = data.qpos[Index.q2.value]
+
+    l1 = Params.l1.value
+    l2 = Params.l2.value
+    r = np.sqrt(l1**2 + l2**2 -2*l1*l2*np.cos(np.pi - q2))
+
+    theta = -np.arctan2(x, -z)
+
+    return r, theta
+
+def Jq_r(model, data):
+    J = np.zeros((2, 2))
+    q1 = data.qpos[Index.q1.value]
+    q2 = data.qpos[Index.q2.value]
+
+    r, _ = radial(model, data)
+
+    l1 = Params.l1.value
+    l2 = Params.l2.value
+    J[0, 0] = 0
+    J[0, 1] = -2*l1*l2*np.sin(q2)/r
+
+    J[1,0] = 1
+    J[1,1] = 0.5
+
+    return J
+
+def SLIP_flight(model, data, rdes = 1.5):
+    
+    r, theta = radial(model, data)
+    J = Jq_r(model, data)
+    dR = J @ data.qvel[Index.q1.value:]
+    g =  np.array([0, 0, -9.81 * Params.M_total.value ])
+    kp = 50
+    kd = 20
+    
+    theta_des = 0
+    print(dR)
+    f = np.array([kp*(rdes - r) + kd*(-dR[0]), 25*(theta_des - theta) +8*(-dR[1]) ])
+
+    tau = J.T@ f 
+
+    data.ctrl[0] = tau[0]
+    data.ctrl[1] = tau[1]
+
+def SLIP_stance(model, data):
+    q1 = data.qpos[Index.q1.value]
+    q2 = data.qpos[Index.q2.value]
+    
+    r, theta = radial(model, data)
+    #zdot = data.qvel[Index.z.value]
+    J = Jq_r(model, data)
+    dR = J @ data.qvel[Index.q1.value:]
+    #nominal height
+    p = 1.5
+    w = 23
+    phi = np.arctan2( w*(p-r),-dR[0])
+    
+    beta = 1
+    ka = 60
+    
+    #fx = 25*(-x)+ 15*(-dX[0])
+    u = np.array([w*w*(p-r)- beta*dR[0] -ka*np.cos(phi), 0 ])  
+
+    g =  np.array([0, 0, -9.81 * Params.M_total.value])
+    tau = J.T@u  + foot_jacobian(model, data).T@g
+    
+    data.ctrl[0] = tau[0]
+    data.ctrl[1] = tau[1]
+
+
+def SLIP(model, data):
+    
+    tol = 8*1e-2
+    stance_h = 1.5
+    
+    
+    #v_flight(model, data, stance_h)
+    global mode
+    r,_ = radial(model, data)
+    delta_z = abs(r-stance_h)
+
+    if mode == 0:
+        SLIP_flight(model, data)
+
+        if delta_z >= tol:
+            
+            mode = 1
+    
+    elif mode == 1:
+        SLIP_stance(model, data)
+        if delta_z <= tol:
+            mode = 0
+
+    modes.append(mode)
+    z_height.append(radial(model, data)[0])
+    
+    
+
+
 def v_flight(model,data, zdes= -2 ,vdes=0):
     q1 = data.qpos[Index.q1.value]
     q2 = data.qpos[Index.q2.value]
     X = forward_kinematics(model,data) # [x,0,z]^T
     J = foot_jacobian(model, data)
-    dX = J @ data.qvel[1:3]
-    g =  np.array([0, 0, -9.81 * Params.M_total.value ])
+    dX = J @ data.qvel[Index.q1.value:]
+    #g =  np.array([0, 0, -9.81 * Params.M_total.value ])
     kp = 150
     kd = 20
     
@@ -174,8 +278,8 @@ def vhad_control(model, data):
     
 def init_controller(model,data):
     
-    data.qpos[1] = -0.6773
-    data.qpos[2] = 1.443
+    data.qpos[Index.q1.value] = -0.6773
+    data.qpos[Index.q2.value] = 1.443
     
     
 
@@ -380,7 +484,7 @@ def momentum_observer(model,data):
     # J[:,2] = foot_jacobian(model, data)[:, 1]
 
     #contact force from joint torque
-    hip_rot = np.array([[np.cos(q),0,np.sin(q)],[0,1,0],[-np.sin(q),0,np.cos(q)]])
+    
     
     contact = np.linalg.pinv ( J.T) @ tau_d[1:]
     return contact
@@ -456,38 +560,43 @@ zdes = -1.5
 while not glfw.window_should_close(window):
     simstart = data.time
 
-    while (data.time - simstart < 1.0/1000.0):
+    while (data.time - simstart < 1.0/60.0):
         #simulation step
         mj.mj_step(model, data)
         # Apply control
-        #pid_controller(model, data)
-        #v_flight(model, data,zdes)
-        #vhad_stance(model, data)
-        vhad_control(model, data)
+        
+        SLIP_flight(model, data)
+        #SLIP_stance(model, data)
+        #SLIP(model, data)
 
-    for j,c in enumerate(data.contact):
-        mj.mj_contactForce(model, data, j, forcetorque)
 
-    q = data.qpos[Index.q1.value]  + data.qpos[Index.q2.value] 
-    rot = Rotation.from_quat(data.xquat[4])
-    toe_frame = rot.as_matrix()#np.array([[np.cos(q),0,-np.sin(q)],[0,1,0],[np.sin(q),0,np.cos(q)]])
-    forcetorque_w= toe_frame@forcetorque[0:3]
+    #z_height.append(radial(model, data)[1])
+
+    # for j,c in enumerate(data.contact):
+    #     mj.mj_contactForce(model, data, j, forcetorque)
+
+    # q1 = data.qpos[Index.q1.value]  
+    # q2 = data.qpos[Index.q2.value] 
+    # knee_frame = np.array([[np.cos(q1),0,-np.sin(q1)],[0,1,0],[np.sin(q1),0,np.cos(q1)]])
+    # toe_frame = np.array([[np.cos(q2),0,-np.sin(q2)],[0,1,0],[np.sin(q2),0,np.cos(q2)]])
+    # forcetorque_w= toe_frame@ knee_frame@ forcetorque[0:3]
     
-    contact_x.append(forcetorque_w[0])
-    contact_y.append(forcetorque_w[1])
-    contact_z.append(forcetorque_w[2])
+    # contact_x.append(forcetorque_w[0])
+    # contact_y.append(forcetorque_w[1])
+    # contact_z.append(forcetorque_w[2])
     
-
+    
     if (data.time>=simend):
         break;
     
     
-    mom_obs = momentum_observer(model= model, data= data)
-    obs_x.append(mom_obs[0])
-    obs_y.append(mom_obs[1])
-    obs_z.append(mom_obs[2])
     
-    print(mom_obs)
+    # mom_obs = momentum_observer(model= model, data= data)
+    # obs_x.append(mom_obs[0])
+    # obs_y.append(mom_obs[1])
+    # obs_z.append(mom_obs[2])
+    
+    # print(mom_obs)
     #print(mode)
     # get framebuffer viewport
     viewport_width, viewport_height = glfw.get_framebuffer_size(
@@ -510,6 +619,7 @@ while not glfw.window_should_close(window):
                        mj.mjtCatBit.mjCAT_ALL.value, scene)
     mj.mjr_render(viewport, scene, context)
 
+    cam.lookat = np.array([data.qpos[0], 0.0, 1.5])
     # swap OpenGL buffers (blocking call due to v-sync)
     glfw.swap_buffers(window)
 
@@ -520,31 +630,22 @@ while not glfw.window_should_close(window):
 
 glfw.terminate()
 
-# fig,axs = plt.subplots(2)
 
-# axs[0].plot(theta1)
-# axs[0].axhline(-0.4,color = 'y', linestyle = '--')
-# axs[0].set_title("Theta1")
-
-# axs[1].plot(theta2)
-# axs[1].axhline(0.8,color = 'y', linestyle = '--')
-# axs[1].set_title("Theta2")
-# plt.subplots_adjust(hspace=0.5)
 plt.plot(modes, color = 'r', linestyle = '--')
 plt.plot(z_height)
-#plt.axhline(zdes,color = 'y', linestyle = '--')
+plt.axhline(zdes,color = 'y', linestyle = '--')
 
-fig, axs = plt.subplots(3)
-axs[0].plot(contact_x)
-axs[0].plot(obs_x)
-axs[0].set_title("X-Contact")
+# fig, axs = plt.subplots(3)
+# axs[0].plot(contact_x)
+# axs[0].plot(obs_x)
+# axs[0].set_title("X-Contact")
 
-axs[1].plot(contact_y)
-axs[1].plot(obs_y)
-axs[1].set_title("Y-Contact")
+# axs[1].plot(contact_y)
+# axs[1].plot(obs_y)
+# axs[1].set_title("Y-Contact")
 
-axs[2].plot(contact_z)
-axs[2].plot(obs_z)
-axs[2].set_title("Z-Contact")
-plt.subplots_adjust(hspace=0.5)
+# axs[2].plot(contact_z)
+# axs[2].plot(obs_z)
+# axs[2].set_title("Z-Contact")
+# plt.subplots_adjust(hspace=0.5)
 plt.show()
