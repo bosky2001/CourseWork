@@ -9,9 +9,10 @@ import matplotlib.pyplot as plt
 from enum import Enum
 import time
 xml_path = 'leg2.xml'
-simend = 15
+simend = 8
 
 step_no = 0
+theta_des = 0
 modes = []     
 z_height = []
 class Params(Enum):
@@ -135,13 +136,13 @@ def SLIP_flight(model, data, rdes = 1.7, theta_des = -0.2):
     J = Jq_r(model, data)
     dR = J @ data.qvel[Index.q1.value:]
     g =  np.array([-9.81 * (Params.M_total.value-Params.M_hip.value), 0 ])
-    kp = 250
+    kp = 20
     kd = 30
     
    
-    f = np.array([kp*(rdes - r) + kd*(-dR[0]), 800*(theta_des - theta) +150*(-dR[1]) ])
+    f = np.array([kp*(rdes - r) + kd*(-dR[0]), 80*(theta_des - theta) +10*(-dR[1]) ])
 
-    tau = J.T@ f + J.T@g
+    tau = J.T@ f 
  
     data.ctrl[0] = tau[0]
     data.ctrl[1] = tau[1]
@@ -176,57 +177,77 @@ def SLIP_stance(model, data):
     phi = np.arctan2( w*(p-r),-dR[0])
     
     beta = 1.5
-    ka = 45
+    ka = 30
     
     #fx = 25*(-x)+ 15*(-dX[0])
     E = w*w*(p-r)- beta*dR[0] -ka*np.cos(phi)
     u = np.array([E,  0])  
 
-    g =  np.array([0, 0, -9.81 * Params.M_total.value])
-    tau = J.T@u  + foot_jacobian(model, data).T@g
+    g =  np.array([ -9.81 * Params.M_total.value,0])
+    U = u - g
+    U[0] = np.max([0.0,U[0]])
+    tau = J.T@ U
     
     data.ctrl[0] = tau[0]
     data.ctrl[1] = tau[1]
 
+def touchdown_angle(xdot,rtd = 1.5,xd = 0):
+    T = 0.2
+    k_x = 0.15
+    return np.arcsin((-xdot*T/2 + k_x*(xd-xdot))/rtd)
 
+body_x_velocity = []
+contact = []
 def SLIP(model, data):
-    
     tol = 7*1e-2
     stance_h = 1.7
- 
+    
+    
+    
     #v_flight(model, data, stance_h)
     g =  np.array([9.81 * Params.M_total.value, 0])
+    J = Jq_r(model, data)
+    dR = J @ data.qvel[Index.q1.value:]
     global mode
     # mode 0 - flight/touchdown
     # mode 1 - stance
     # mode 2 - takeoff
     r,theta = radial(model, data)
     delta_z = abs(r-stance_h)
-    theta_des= -0.1
+    global theta_des
     vel = foot_jacobian(model, data) @ data.qvel[Index.q1.value:]
     
-    print()
+    xdot = -vel[0]
+    
     #print(vel[0])
     if mode == 0:
         SLIP_flight(model, data, rdes = stance_h, theta_des = theta_des)
 
-        if delta_z >= tol:
+        if delta_z >= tol and dR[0]<0:
             
             mode = 1
+
     
     elif mode == 1:
         #Toe_control(model, data, forward_kinematics(model, data)[2])
         SLIP_stance(model, data)
-        if delta_z <= tol:
+        leg_angle_gain = 0.85
+        if delta_z <= tol and dR[0]>0:
+            theta_ff = 0.06
+            theta_des = touchdown_angle(xdot, stance_h,2) + theta_ff
             mode = 0
 
-   
 
     modes.append(mode)
-    z_height.append(r)
+    z_height.append(xdot)
+    body_x_velocity.append(data.qvel[Index.x.value])
     #z_height.append(data.qvel[Index.x.value])
-    
-
+    #TODO: plot when actually in contact
+    if data.nefc:
+        contact.append(1)
+    else:
+        contact.append(0)
+    #COM plots
 
 def v_flight(model,data, zdes= -2 ,vdes=0):
     q1 = data.qpos[Index.q1.value]
@@ -524,6 +545,7 @@ xml_path = abspath
 
 # MuJoCo data structures
 model = mj.MjModel.from_xml_path('leg2.xml')  # MuJoCo model
+model.opt.timestep=0.001
 data = mj.MjData(model)                # MuJoCo data
 cam = mj.MjvCamera()                        # Abstract camera
 opt = mj.MjvOption()                        # visualization options
@@ -585,8 +607,9 @@ obs_z =[]
 zdes = -1.5
 while not glfw.window_should_close(window):
     simstart = data.time
-
+    count_loops = 0
     while (data.time - simstart < 1.0/60.0):
+        count_loops += 1
         #simulation step
         mj.mj_step(model, data)
         # Apply control
@@ -594,7 +617,7 @@ while not glfw.window_should_close(window):
         #SLIP_flight(model, data)
         #SLIP_stance(model, data)
         SLIP(model, data)
-
+    print(count_loops)
 
     #z_height.append(radial(model, data)[1])
 
@@ -658,8 +681,9 @@ glfw.terminate()
 
 
 plt.plot(modes, color = 'r', linestyle = '--')
-plt.plot(z_height)
-plt.axhline(zdes,color = 'y', linestyle = '--')
+plt.plot(body_x_velocity)
+plt.plot(contact, color = 'g')
+
 
 # fig, axs = plt.subplots(3)
 # axs[0].plot(contact_x)
