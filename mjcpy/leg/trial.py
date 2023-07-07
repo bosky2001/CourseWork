@@ -8,38 +8,20 @@ from scipy.spatial.transform import Rotation
 import matplotlib.pyplot as plt
 from enum import Enum
 import time
+
+
+from momentum_obs import *
 xml_path = 'leg2.xml'
-simend = 8
+simend = 15
 
 step_no = 0
 theta_des = 0
 modes = []     
 z_height = []
-class Params(Enum):
-    M_hip = 5
-    M_l1 = 0.5
-    M_l2 = 0.5
-    M_toe = 0.1
-    M_total = M_hip + M_l1+ M_l2 + M_toe
 
-    l1 = 1
-    l2 = 1
-    r1 = 0.05
-    r2 = 0.05
-    r_toe = 0.07
-
-    I1 = (1/12)* M_l1*(l1**2 + 3*r1**2)
-    I2 = (1/12)* M_l2*(l2**2 + 3*r2**2)
-    I_toe = (2/5)*M_toe*r_toe**2
-    
-class Index(Enum):
-
-    x = 0
-    z = 1
-    q1 = 2
-    q2 = 3
-
-
+applied_x = []
+applied_y = []
+applied_z = []
 
 mode = 0
 
@@ -51,25 +33,57 @@ lastx = 0
 lasty = 0
 error_i = np.zeros(2)
 
-def forward_kinematics(model,data):
-    q1 = data.qpos[Index.q1.value]
-    q2 = data.qpos[Index.q2.value]
-    g= 1
-    x = - Params.l1.value * np.sin(q1) - Params.l2.value * np.sin(q1+q2)
-    y = 0
-    z = -Params.l1.value * np.cos(q1) - Params.l2.value * np.cos(q1+q2)
-    return np.array([x,y,z])
 
-def foot_jacobian(model, data):
-    J = np.zeros((3,2))
+
+def get_comPos(model, data):
+
     q1 = data.qpos[Index.q1.value]
     q2 = data.qpos[Index.q2.value]
-    J[0,0] = - Params.l1.value * np.cos(q1) - Params.l2.value * np.cos(q1+q2)
-    J[0,1] = - Params.l2.value * np.cos(q1+q2)
+
+    l1 = Params.l1.value
+    l2 = Params.l2.value
+
+    m_hip = Params.M_hip.value
+    m_l1 = Params.M_l1.value
+    m_l2 = Params.M_l2.value
+    m_toe = Params.M_toe.value
+
+    I_l1 = Params.I1.value
+    I_l2 = Params.I2.value
+    I_t = Params.I_toe.value
+
+    q1dot = data.qvel[Index.q1.value]
+    q2dot = data.qvel[Index.q2.value]
+
+    #World Frame
+    xhip = data.qpos[Index.x.value]
+    zhip = data.qpos[Index.z.value]
+
+    xdot = data.qvel[Index.x.value]
+    zdot = data.qvel[Index.z.value]
+    #Body Frame
+    # xhip = 0
+    # zhip = 0
+
+    xcom = (xhip*m_hip + (xhip -(1/2)*l1*np.sin(q1))*m_l1 + (xhip -l1*np.sin(q1) \
+           - (1/2)*l2*np.sin(q1+q2))*m_l2 + (xhip -l1*np.sin(q1)  \
+           - l2*np.sin(q1 + q2))*m_toe) / Params.M_total.value
     
-    J[2,0] =  Params.l1.value * np.sin(q1)+ Params.l2.value * np.sin(q1+q2)
-    J[2,1]=   Params.l2.value * np.sin(q1+q2)
-    return J
+    zcom = (zhip*m_hip + (zhip -(1/2)*l1*np.cos(q1))*m_l1 + (zhip -l1*np.cos(q1) \
+           - (1/2)*l2*np.cos(q1+q2))*m_l2 + (zhip -l1*np.cos(q1)  \
+           - l2*np.cos(q1 + q2))*m_toe) / Params.M_total.value
+    
+    xcomdot = -0.5*(l1*(m_l1 + 2*(m_l2 + m_toe))*np.cos(q1) \
+                    + l2*(m_l2 + 2*m_toe)*np.cos(q1 + q2))*q1dot \
+                    - 0.5*l2*(m_l2 + 2*m_toe)*np.cos(q1+q2)*q2dot \
+                    + Params.M_total.value*xdot
+    
+    zcomdot = 0.5*(l1*(m_l1 + 2*(m_l2 + m_toe))*np.sin(q1) \
+                    + l2*(m_l2 + 2*m_toe)*np.sin(q1 + q2))*q1dot \
+                    + 0.5*l2*(m_l2 + 2*m_toe)*np.sin(q1+q2)*q2dot \
+                    + Params.M_total.value*zdot
+
+    return xcom,zcom, xcomdot, zcomdot
 
 def pid_controller(model, data):
     """
@@ -99,36 +113,7 @@ def pid_controller(model, data):
     data.ctrl[0] = tau[0] - ff[1]
     data.ctrl[1] =  tau[1]- ff[2]
 
-def radial(model, data):
-    [x,_,z] = forward_kinematics(model, data)
 
-    q1 = data.qpos[Index.q1.value]
-    q2 = data.qpos[Index.q2.value]
-
-    l1 = Params.l1.value
-    l2 = Params.l2.value
-    r = np.sqrt(l1**2 + l2**2 -2*l1*l2*np.cos(np.pi - q2))
-
-    theta = -np.arctan2(x, -z)
-
-    return r, theta
-
-def Jq_r(model, data):
-    J = np.zeros((2, 2))
-    q1 = data.qpos[Index.q1.value]
-    q2 = data.qpos[Index.q2.value]
-
-    r, _ = radial(model, data)
-
-    l1 = Params.l1.value
-    l2 = Params.l2.value
-    J[0, 0] = 0
-    J[0, 1] = -2*l1*l2*np.sin(q2)/r
-
-    J[1,0] = 1
-    J[1,1] = 0.5
-
-    return J
 
 def SLIP_flight(model, data, rdes = 1.7, theta_des = -0.2):
     
@@ -144,6 +129,7 @@ def SLIP_flight(model, data, rdes = 1.7, theta_des = -0.2):
 
     tau = J.T@ f 
  
+
     data.ctrl[0] = tau[0]
     data.ctrl[1] = tau[1]
 
@@ -187,6 +173,7 @@ def SLIP_stance(model, data):
     U = u - g
     U[0] = np.max([0.0,U[0]])
     tau = J.T@ U
+
     
     data.ctrl[0] = tau[0]
     data.ctrl[1] = tau[1]
@@ -197,13 +184,13 @@ def touchdown_angle(xdot,rtd = 1.5,xd = 0):
     return np.arcsin((-xdot*T/2 + k_x*(xd-xdot))/rtd)
 
 body_x_velocity = []
+com_pos = []
 contact = []
+
 def SLIP(model, data):
     tol = 7*1e-2
     stance_h = 1.7
-    
-    
-    
+
     #v_flight(model, data, stance_h)
     g =  np.array([9.81 * Params.M_total.value, 0])
     J = Jq_r(model, data)
@@ -211,7 +198,7 @@ def SLIP(model, data):
     global mode
     # mode 0 - flight/touchdown
     # mode 1 - stance
-    # mode 2 - takeoff
+ 
     r,theta = radial(model, data)
     delta_z = abs(r-stance_h)
     global theta_des
@@ -227,27 +214,28 @@ def SLIP(model, data):
             
             mode = 1
 
-    
     elif mode == 1:
         #Toe_control(model, data, forward_kinematics(model, data)[2])
         SLIP_stance(model, data)
         leg_angle_gain = 0.85
         if delta_z <= tol and dR[0]>0:
-            theta_ff = 0.06
-            theta_des = touchdown_angle(xdot, stance_h,2) + theta_ff
+            theta_ff = 0.055
+            theta_des = touchdown_angle(xdot, stance_h,0.) + theta_ff
             mode = 0
 
-
-    modes.append(mode)
+    
+    #modes.append(mode)
     z_height.append(xdot)
-    body_x_velocity.append(data.qvel[Index.x.value])
+    #xcom,_,xcomdot, zcomdot = get_comPos(model, data)
+    
+    
     #z_height.append(data.qvel[Index.x.value])
-    #TODO: plot when actually in contact
-    if data.nefc:
-        contact.append(1)
-    else:
-        contact.append(0)
+    
+
+    #plot when actually in contact
+    
     #COM plots
+    
 
 def v_flight(model,data, zdes= -2 ,vdes=0):
     q1 = data.qpos[Index.q1.value]
@@ -318,10 +306,10 @@ def vhad_control(model, data):
         if delta_z <= tol:
             mode = 0
 
-    modes.append(mode)
+    
     z_height.append(forward_kinematics(model, data)[2])
 
-    
+  
     
 def init_controller(model,data):
     
@@ -403,138 +391,8 @@ def constraint(data):
         return J@f
     else: return np.zeros(4)
 
-def g_force(data):
-
-    G = np.zeros(3)
-
-    g = -9.81
-    q1 = data.qpos[Index.q1.value]
-    q2 = data.qpos[Index.q2.value]
-
-    l1 = Params.l1.value
-    l2 = Params.l2.value
-
-    m_l1 = Params.M_l1.value
-    m_l2 = Params.M_l2.value
-    m_toe = Params.M_toe.value
-    G[0] = g*(Params.M_total.value)
-    G[1] = 0.5*g*(l1*(m_l1 + 2*(m_l2+m_toe))*np.sin(q1) + l2*(m_l2+2*m_toe)*np.sin(q1+q2))
-    G[2] = 0.5*l2*g*(m_l2 + 2*m_toe)*np.sin(q1+q2)
-
-    return G
-    
-tau_prev = P_prev =  np.zeros(3)
-
-def get_M(model, data):
-    M = np.zeros((model.nq, model.nq))
-
-    q1 = data.qpos[Index.q1.value]
-    q2 = data.qpos[Index.q2.value]
-
-    l1 = Params.l1.value
-    l2 = Params.l2.value
-
-    m_l1 = Params.M_l1.value
-    m_l2 = Params.M_l2.value
-    m_toe = Params.M_toe.value
-
-    I_l1 = Params.I1.value
-    I_l2 = Params.I2.value
-    I_t = Params.I_toe.value
-
-    M[0,0] = Params.M_total.value
-    M[0,1] = M[1,0] = 0.5*( l1 * (m_l1 + 2 * (m_l2 + m_toe))*np.sin(q1) \
-                      + l2 * (m_l2 + 2*m_toe) * np.sin(q1 + q2))
-    
-    M[0,2] = M[2,0] = 0.5*l2*(m_l2 + 2*m_toe) * np.sin(q1 + q2) #i have autism
-
-    
-    M[1,2] = M[2,1] = I_l2 +I_t+ 0.25*(l2**2)*(m_l2 + 4*m_toe) + 0.5*l1*l2*(m_l2 + 2*m_toe)*np.cos(q2)
-    
-    M[2, 2] = I_l2 + (l2**2)*(0.25*m_l2 + m_toe)
-
-    M[1, 1] =  I_l1 + I_l2 + I_t + (l1**2)*(0.25*m_l1 + m_l2 + m_toe) \
-               + 0.25*(l2**2)*( m_l2 + 4*m_toe) \
-               + l1*l2*(m_l2 + 2*m_toe)*np.cos(q2)
-
-    return M
-def get_C(model, data):
-    C = np.zeros((3,3))
-    q1 = data.qpos[Index.q1.value]
-    q2 = data.qpos[Index.q2.value]
-
-    q1dot = data.qvel[Index.q1.value]
-    q2dot = data.qvel[Index.q2.value]
-
-    l1 = Params.l1.value
-    l2 = Params.l2.value
-
-    m_l1 = Params.M_l1.value
-    m_l2 = Params.M_l2.value
-    m_toe = Params.M_toe.value
-
-    I_l1 = Params.I1.value
-    I_l2 = Params.I2.value
-    I_t = Params.I_toe.value
-    C[0,1] = 0.5*(l1*(m_l1 + 2*(m_l2 + m_toe))*np.cos(q1) \
-                  + l2*(m_l2 + 2*m_toe)*np.cos(q1+q2)) *q1dot \
-                  + 0.5*l2*(m_l2+2*m_toe)*np.cos(q1 +q2)*q2dot
 
 
-    C[0,2] =  0.5*l2*(m_l2+2*m_toe)*np.cos(q1 + q2)*(q1dot + q2dot)
-
-    C[1,1] = -0.5*l1*l2*(m_l2+2*m_toe)*np.sin(q2)*q2dot
-
-    C[1,2] = -0.5*l1*l2*(m_l2 + 2*m_toe)*np.sin(q2)*(q1dot + q2dot)
-
-    C[2,1] = 0.5*l1*l2*(m_l2 + 2*m_toe)*np.sin(q2)*q1dot
-
-    return C
-
-def momentum_observer(model,data):
-
-    global P_prev, tau_prev
-
-    #Constructing M from the sparse matrix qM
-    #M = np.zeros((model.nv, model.nv))
-    #_functions.mj_fullM(model, M, data.qM)
-    M = get_M(model, data) #3X3
-
-    #GETTING JACOBIAN
-    jac_foot = np.zeros((3, model.nv))
-    mj.mj_jacSubtreeCom(model, data, jac_foot, model.body('foot').id)
-
-    C = get_C(model, data)  #3X3
-    # C = get_C(model, data) # Cq + G term
-    v = np.array([0, data.qvel[1], data.qvel[2]])
-    
-    #Z joint has no force
-    tau_ext = np.array([0, data.actuator_force[0], data.actuator_force[1]]) #3
-    
-    J = foot_jacobian(model, data)
-    P = M@v  # 
-    # observer 
-    t_delta = 1/1000
-    freq = 100 # cut-off frequency 
-    gamma = np.exp(-freq*t_delta)
-    beta = (1-gamma)/(gamma*t_delta)
-    alpha_k = beta*P + tau_ext + C.T@v - g_force(data)
-    tau_d = beta*(P -gamma*P_prev) + gamma*(tau_prev)+(gamma-1)*alpha_k  
-
-    tau_prev = tau_d
-    P_prev = P
-
-    # S = np.array([[0,1,0],[0,0,1]])
-
-    # J = np.zeros((3,3)) 
-    # J[:,0] = foot_jacobian(model, data)[:,0]
-    # J[:,2] = foot_jacobian(model, data)[:, 1]
-
-    #contact force from joint torque
-    
-    
-    contact = np.linalg.pinv ( J.T) @ tau_d[1:]
-    return contact
 
 
 #get the full path
@@ -545,7 +403,6 @@ xml_path = abspath
 
 # MuJoCo data structures
 model = mj.MjModel.from_xml_path('leg2.xml')  # MuJoCo model
-model.opt.timestep=0.001
 data = mj.MjData(model)                # MuJoCo data
 cam = mj.MjvCamera()                        # Abstract camera
 opt = mj.MjvOption()                        # visualization options
@@ -595,7 +452,7 @@ contact_x = []
 contact_y = []
 contact_z = []
 M = np.zeros((model.nv,model.nv))
-jac_com = np.zeros((3, model.nv))
+
 
 
 obs_x =[]
@@ -605,11 +462,13 @@ obs_z =[]
 # theta2 = []
 
 zdes = -1.5
+
+mj.mj_comVel(model, data)
+mj.mj_comPos(model, data)
 while not glfw.window_should_close(window):
     simstart = data.time
-    count_loops = 0
+
     while (data.time - simstart < 1.0/60.0):
-        count_loops += 1
         #simulation step
         mj.mj_step(model, data)
         # Apply control
@@ -617,34 +476,43 @@ while not glfw.window_should_close(window):
         #SLIP_flight(model, data)
         #SLIP_stance(model, data)
         SLIP(model, data)
-    print(count_loops)
-
+    
+    
     #z_height.append(radial(model, data)[1])
 
-    # for j,c in enumerate(data.contact):
-    #     mj.mj_contactForce(model, data, j, forcetorque)
+    forcetorque = np.zeros(6)
+    for j,c in enumerate(data.contact):
+        mj.mj_contactForce(model, data, j, forcetorque)
 
-    # q1 = data.qpos[Index.q1.value]  
-    # q2 = data.qpos[Index.q2.value] 
-    # knee_frame = np.array([[np.cos(q1),0,-np.sin(q1)],[0,1,0],[np.sin(q1),0,np.cos(q1)]])
-    # toe_frame = np.array([[np.cos(q2),0,-np.sin(q2)],[0,1,0],[np.sin(q2),0,np.cos(q2)]])
-    # forcetorque_w= toe_frame@ knee_frame@ forcetorque[0:3]
+    q1q2 = np.pi/2#data.qpos[Index.q1.value] + data.qpos[Index.q2.value]
+    toe_frame = np.array([[np.cos(q1q2),0,-np.sin(q1q2)],[0,1,0],[np.sin(q1q2),0,np.cos(q1q2)]])
+    forcetorque_w= toe_frame@ forcetorque[0:3]
     
-    # contact_x.append(forcetorque_w[0])
-    # contact_y.append(forcetorque_w[1])
-    # contact_z.append(forcetorque_w[2])
+    contact_x.append(forcetorque_w[0])
+    contact_y.append(forcetorque_w[1])
+    contact_z.append(forcetorque_w[2])
     
+    modes.append(100*mode)
+    if data.nefc:
+        contact.append(100)
+    else:
+        contact.append(0)
     
     if (data.time>=simend):
         break;
     
     
     
-    # mom_obs = momentum_observer(model= model, data= data)
-    # obs_x.append(mom_obs[0])
-    # obs_y.append(mom_obs[1])
-    # obs_z.append(mom_obs[2])
+    mom_obs = momentum_observer(model= model, data= data)
+    obs_x.append(mom_obs[0])
+    obs_y.append(mom_obs[1])
+    obs_z.append(mom_obs[2])
     
+    f_xyz = np.linalg.pinv(foot_jacobian(model, data).T)@ data.actuator_force
+    
+    applied_x.append(-f_xyz[0])
+    applied_y.append(-f_xyz[1])
+    applied_z.append(-f_xyz[2])
     # print(mom_obs)
     #print(mode)
     # get framebuffer viewport
@@ -659,6 +527,12 @@ while not glfw.window_should_close(window):
     # print(" And ")
     # print(get_M(model, data))
     # print("----------------------")
+   
+    print(data.qfrc_bias)
+    print("and")
+    C = get_C(model, data)@data.qvel - g_force(data)
+    print(C)
+    print("------------")
     # Show joint frames
     opt.flags[mj.mjtVisFlag.mjVIS_JOINT] = 1
 
@@ -680,22 +554,33 @@ while not glfw.window_should_close(window):
 glfw.terminate()
 
 
+
+figures, axs = plt.subplots(3, sharex=True)
+axs[0].plot(contact_x,   label='Mujoco')
+axs[0].plot(obs_x, label='Observer')
+axs[0].plot(applied_x,  label='Applied')
+axs[0].plot(modes)
+axs[0].plot(contact)
+axs[0].set_title("X-Contact")
+axs[0].legend()
+
+axs[1].plot(contact_y,  label='Mujoco')
+axs[1].plot(obs_y,   label='Observer')
+axs[1].plot(applied_y,  label='Applied')
+axs[1].set_title("Y-Contact")
+axs[1].legend()
+
+axs[2].plot(contact_z, color = 'r', linestyle = '--', label='Mujoco')
+axs[2].plot(obs_z, color = 'g', linestyle = '-.', label='Observer')
+axs[2].plot(applied_z, color='y', label='Applied')
+axs[2].set_title("Z-Contact")
+axs[2].legend()
+
+plt.figure()
 plt.plot(modes, color = 'r', linestyle = '--')
-plt.plot(body_x_velocity)
 plt.plot(contact, color = 'g')
 
 
-# fig, axs = plt.subplots(3)
-# axs[0].plot(contact_x)
-# axs[0].plot(obs_x)
-# axs[0].set_title("X-Contact")
 
-# axs[1].plot(contact_y)
-# axs[1].plot(obs_y)
-# axs[1].set_title("Y-Contact")
-
-# axs[2].plot(contact_z)
-# axs[2].plot(obs_z)
-# axs[2].set_title("Z-Contact")
-# plt.subplots_adjust(hspace=0.5)
+plt.subplots_adjust(hspace=0.5)
 plt.show()
