@@ -33,6 +33,13 @@ lastx = 0
 lasty = 0
 error_i = np.zeros(2)
 
+contact_x = []
+contact_y = []
+contact_z = []
+
+obs_x =[]
+obs_y =[]
+obs_z =[]
 
 
 def get_comPos(model, data):
@@ -224,15 +231,39 @@ def SLIP(model, data):
             mode = 0
 
     
-    #modes.append(mode)
+    modes.append(mode)
     z_height.append(xdot)
     #xcom,_,xcomdot, zcomdot = get_comPos(model, data)
+    forcetorque = np.zeros(6)
+    for j,c in enumerate(data.contact):
+        mj.mj_contactForce(model, data, j, forcetorque)
+
+    q1q2 = np.pi/2#data.qpos[Index.q1.value] + data.qpos[Index.q2.value]
+    toe_frame = np.array([[np.cos(q1q2),0,-np.sin(q1q2)],[0,1,0],[np.sin(q1q2),0,np.cos(q1q2)]])
+    forcetorque_w= toe_frame@ forcetorque[0:3]
     
+    contact_x.append(forcetorque_w[0])
+    contact_y.append(forcetorque_w[1])
+    contact_z.append(forcetorque_w[2])
     
-    #z_height.append(data.qvel[Index.x.value])
+    #momentum observer
+    mom_obs = momentum_observer(model= model, data= data)
+    obs_x.append(mom_obs[0])
+    obs_y.append(mom_obs[1])
+    obs_z.append(mom_obs[2])
+
+    #Quasistatic
+    f_xyz = np.linalg.pinv(foot_jacobian(model, data).T)@ data.actuator_force
     
+    applied_x.append(-f_xyz[0])
+    applied_y.append(-f_xyz[1])
+    applied_z.append(-f_xyz[2])
 
     #plot when actually in contact
+    if data.nefc:
+        contact.append(1)
+    else:
+        contact.append(0)
     
     #COM plots
     
@@ -448,16 +479,16 @@ init_controller(model,data)
 #set the controller
 
 forcetorque = np.zeros(6)
-contact_x = []
-contact_y = []
-contact_z = []
+# contact_x = []
+# contact_y = []
+# contact_z = []
 M = np.zeros((model.nv,model.nv))
 
 
 
-obs_x =[]
-obs_y =[]
-obs_z =[]
+# obs_x =[]
+# obs_y =[]
+# obs_z =[]
 # theta1 = []
 # theta2 = []
 
@@ -481,38 +512,38 @@ while not glfw.window_should_close(window):
     #z_height.append(radial(model, data)[1])
 
     forcetorque = np.zeros(6)
-    for j,c in enumerate(data.contact):
-        mj.mj_contactForce(model, data, j, forcetorque)
+    # for j,c in enumerate(data.contact):
+    #     mj.mj_contactForce(model, data, j, forcetorque)
 
-    q1q2 = np.pi/2#data.qpos[Index.q1.value] + data.qpos[Index.q2.value]
-    toe_frame = np.array([[np.cos(q1q2),0,-np.sin(q1q2)],[0,1,0],[np.sin(q1q2),0,np.cos(q1q2)]])
-    forcetorque_w= toe_frame@ forcetorque[0:3]
+    # q1q2 = np.pi/2#data.qpos[Index.q1.value] + data.qpos[Index.q2.value]
+    # toe_frame = np.array([[np.cos(q1q2),0,-np.sin(q1q2)],[0,1,0],[np.sin(q1q2),0,np.cos(q1q2)]])
+    # forcetorque_w= toe_frame@ forcetorque[0:3]
     
-    contact_x.append(forcetorque_w[0])
-    contact_y.append(forcetorque_w[1])
-    contact_z.append(forcetorque_w[2])
+    # contact_x.append(forcetorque_w[0])
+    # contact_y.append(forcetorque_w[1])
+    # contact_z.append(forcetorque_w[2])
     
-    modes.append(100*mode)
-    if data.nefc:
-        contact.append(100)
-    else:
-        contact.append(0)
+    #modes.append(mode)
+    # if data.nefc:
+    #     contact.append(1)
+    # else:
+    #     contact.append(0)
     
     if (data.time>=simend):
         break;
     
     
     
-    mom_obs = momentum_observer(model= model, data= data)
-    obs_x.append(mom_obs[0])
-    obs_y.append(mom_obs[1])
-    obs_z.append(mom_obs[2])
+    # mom_obs = momentum_observer(model= model, data= data)
+    # obs_x.append(mom_obs[0])
+    # obs_y.append(mom_obs[1])
+    # obs_z.append(mom_obs[2])
     
-    f_xyz = np.linalg.pinv(foot_jacobian(model, data).T)@ data.actuator_force
+    # f_xyz = np.linalg.pinv(foot_jacobian(model, data).T)@ data.actuator_force
     
-    applied_x.append(-f_xyz[0])
-    applied_y.append(-f_xyz[1])
-    applied_z.append(-f_xyz[2])
+    # applied_x.append(-f_xyz[0])
+    # applied_y.append(-f_xyz[1])
+    # applied_z.append(-f_xyz[2])
     # print(mom_obs)
     #print(mode)
     # get framebuffer viewport
@@ -553,32 +584,56 @@ while not glfw.window_should_close(window):
 
 glfw.terminate()
 
+x = np.arange(0,len(modes))
+
 
 
 figures, axs = plt.subplots(3, sharex=True)
-axs[0].plot(contact_x,   label='Mujoco')
-axs[0].plot(obs_x, label='Observer')
-axs[0].plot(applied_x,  label='Applied')
-axs[0].plot(modes)
-axs[0].plot(contact)
+
+axs[0].plot(contact_x, color="crimson",  label='Mujoco')
+axs[0].plot(obs_x,color="royalblue", label='Observer')
+axs[0].plot(applied_x,color='limegreen',  label='Applied', alpha=0.6)
+
+detect = axs[0].get_ybound()[1]*np.array(contact)
+guard = axs[0].get_ybound()[1]*np.array(modes)
+
+axs[0].fill_between(x,detect,color="slategrey", alpha=0.8)
+axs[0].fill_between(x,guard,color="orange", alpha=0.25)
+
 axs[0].set_title("X-Contact")
 axs[0].legend()
 
-axs[1].plot(contact_y,  label='Mujoco')
-axs[1].plot(obs_y,   label='Observer')
-axs[1].plot(applied_y,  label='Applied')
+
+axs[1].plot(contact_y, color="crimson", label='Mujoco')
+axs[1].plot(obs_y,color="royalblue",label='Observer')
+axs[1].plot(applied_y,color='limegreen',  label='Applied', alpha=0.9)
+
+detect = axs[1].get_ybound()[1]*np.array(contact)
+guard = axs[1].get_ybound()[1]*np.array(modes)
+
+axs[1].fill_between(x,detect,color="slategrey", alpha=0.8)
+axs[1].fill_between(x,guard,color="orange", alpha=0.25)
+
 axs[1].set_title("Y-Contact")
 axs[1].legend()
 
-axs[2].plot(contact_z, color = 'r', linestyle = '--', label='Mujoco')
-axs[2].plot(obs_z, color = 'g', linestyle = '-.', label='Observer')
-axs[2].plot(applied_z, color='y', label='Applied')
+
+axs[2].plot(contact_z, color="crimson",  label='Mujoco')
+axs[2].plot(obs_z, color="royalblue",  label='Observer')
+axs[2].plot(applied_z, color='limegreen', label='Applied', alpha=0.9)
+
+detect = axs[2].get_ybound()[1]*np.array(contact)
+guard = axs[2].get_ybound()[1]*np.array(modes)
+
+axs[2].fill_between(x,detect,color="slategrey", alpha=0.8)
+axs[2].fill_between(x,guard,color="orange", alpha=0.25)
+
 axs[2].set_title("Z-Contact")
 axs[2].legend()
 
-plt.figure()
-plt.plot(modes, color = 'r', linestyle = '--')
-plt.plot(contact, color = 'g')
+# plt.figure()
+# plt.plot(modes, color = 'r', linestyle = '--')
+# plt.plot(contact, color = 'g')
 
 
 
