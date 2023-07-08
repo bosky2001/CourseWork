@@ -139,8 +139,8 @@ def momentum_observer(model,data):
     
     P = M@v  
     # observer 
-    t_delta = 1/60
-    freq = 60 # cut-off frequency 
+    t_delta = 1/1000
+    freq = 100 # cut-off frequency 
     gamma = np.exp(-freq*t_delta)
     beta = (1-gamma)/(gamma*t_delta)
     alpha_k = beta*P + tau_ext + C.T@v - g_force(data)

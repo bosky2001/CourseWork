@@ -4,19 +4,19 @@ import numpy as np
 from numpy.linalg import inv
 from enum import Enum
 
-
+noise = 0.2
 class Params(Enum):
-    M_hip = 5
-    M_l1 = 0.5
-    M_l2 = 0.5
-    M_toe = 0.1
+    M_hip = 5*(1 + noise*np.random.normal()) 
+    M_l1 = 0.5*(1 + noise*np.random.normal()) 
+    M_l2 = 0.5*(1 + noise*np.random.normal()) 
+    M_toe = 0.1*(1 + noise*np.random.normal()) 
     M_total = M_hip + M_l1+ M_l2 + M_toe
 
-    l1 = 1
-    l2 = 1
-    r1 = 0.05
-    r2 = 0.05
-    r_toe = 0.07
+    l1 = 1*(1 + noise*np.random.normal()) 
+    l2 = 1*(1 + noise*np.random.normal()) 
+    r1 = 0.05*(1 + noise*np.random.normal()) 
+    r2 = 0.05*(1 + noise*np.random.normal()) 
+    r_toe = 0.07*(1 + noise*np.random.normal()) 
 
     I1 = (1/12)* M_l1*(l1**2 + 3*r1**2)
     I2 = (1/12)* M_l2*(l2**2 + 3*r2**2)

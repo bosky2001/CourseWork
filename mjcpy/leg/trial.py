@@ -12,10 +12,11 @@ import time
 
 from momentum_obs import *
 xml_path = 'leg2.xml'
-simend = 15
+simend = 6
+animate = True
 
 step_no = 0
-theta_des = 0
+theta_des = -0.055
 modes = []     
 z_height = []
 
@@ -40,6 +41,8 @@ contact_z = []
 obs_x =[]
 obs_y =[]
 obs_z =[]
+
+contact_force_tol = 50
 
 
 def get_comPos(model, data):
@@ -213,26 +216,18 @@ def SLIP(model, data):
     
     xdot = -vel[0]
     
+    #momentum observer
+    mom_obs = momentum_observer(model= model, data= data)
+    obs_x.append(mom_obs[0])
+    obs_y.append(mom_obs[1])
+    obs_z.append(mom_obs[2])
+    k = 20
     #print(vel[0])
-    if mode == 0:
-        SLIP_flight(model, data, rdes = stance_h, theta_des = theta_des)
 
-        if delta_z >= tol and dR[0]<0:
-            
-            mode = 1
-
-    elif mode == 1:
-        #Toe_control(model, data, forward_kinematics(model, data)[2])
-        SLIP_stance(model, data)
-        leg_angle_gain = 0.85
-        if delta_z <= tol and dR[0]>0:
-            theta_ff = 0.055
-            theta_des = touchdown_angle(xdot, stance_h,0.) + theta_ff
-            mode = 0
 
     
     modes.append(mode)
-    z_height.append(xdot)
+    #z_height.append(xdot)
     #xcom,_,xcomdot, zcomdot = get_comPos(model, data)
     forcetorque = np.zeros(6)
     for j,c in enumerate(data.contact):
@@ -246,11 +241,7 @@ def SLIP(model, data):
     contact_y.append(forcetorque_w[1])
     contact_z.append(forcetorque_w[2])
     
-    #momentum observer
-    mom_obs = momentum_observer(model= model, data= data)
-    obs_x.append(mom_obs[0])
-    obs_y.append(mom_obs[1])
-    obs_z.append(mom_obs[2])
+    
 
     #Quasistatic
     f_xyz = np.linalg.pinv(foot_jacobian(model, data).T)@ data.actuator_force
@@ -266,7 +257,29 @@ def SLIP(model, data):
         contact.append(0)
     
     #COM plots
+
+    if mode == 0:
+        SLIP_flight(model, data, rdes = stance_h, theta_des = theta_des)
+
+        #if obs_z[-1] >= contact_force_tol and dR[0]<=0 :
+        if applied_z[-1] >= contact_force_tol and dR[0]<0:
+        #if delta_z >= tol and dR[0]<0:
+            
+            mode = 1
+
+    elif mode == 1:
+        #Toe_control(model, data, forward_kinematics(model, data)[2])
+        SLIP_stance(model, data)
+        #if delta_z <= tol and dR[0]>0:
+        #if obs_z[-1] <= k and dR[0]>0:
+        if applied_z[-1] >= contact_force_tol and dR[0]<0:
+            theta_ff = 0.055
+            theta_des = touchdown_angle(xdot, stance_h,0) + theta_ff
+            mode = 0
+
     
+    
+
 
 def v_flight(model,data, zdes= -2 ,vdes=0):
     q1 = data.qpos[Index.q1.value]
@@ -312,8 +325,6 @@ def vhad_stance(model, data):
     data.ctrl[0] = tau[0]
     data.ctrl[1] = tau[1]
 
-
-
 def vhad_control(model, data):
     
     tol = 8*1e-2
@@ -340,7 +351,6 @@ def vhad_control(model, data):
     
     z_height.append(forward_kinematics(model, data)[2])
 
-  
     
 def init_controller(model,data):
     
@@ -438,41 +448,40 @@ data = mj.MjData(model)                # MuJoCo data
 cam = mj.MjvCamera()                        # Abstract camera
 opt = mj.MjvOption()                        # visualization options
 
+if animate:
+    # Init GLFW, create window, make OpenGL context current, request v-sync
+    glfw.init()
+    window = glfw.create_window(1200, 900, "Demo", None, None)
+    glfw.make_context_current(window)
+    glfw.swap_interval(1)
 
 
-# Init GLFW, create window, make OpenGL context current, request v-sync
-glfw.init()
-window = glfw.create_window(1200, 900, "Demo", None, None)
-glfw.make_context_current(window)
-glfw.swap_interval(1)
+    # initialize visualization data structures
+    mj.mjv_defaultCamera(cam)
+    scene = mj.MjvScene(model, maxgeom=10000)
+    context = mj.MjrContext(model, mj.mjtFontScale.mjFONTSCALE_150.value)
 
+    # initialize visualization contact forces
+    mj.mjv_defaultOption(opt)
+    opt.flags[mj.mjtVisFlag.mjVIS_CONTACTPOINT] = True
+    opt.flags[mj.mjtVisFlag.mjVIS_CONTACTFORCE] = True
+    opt.flags[mj.mjtVisFlag.mjVIS_TRANSPARENT] = True
+    # # tweak scales of contact visualization elements
+    # model.vis.scale.contactwidth = 0.1
+    # model.vis.scale.contactheight = 0.03
+    # model.vis.scale.forcewidth = 0.05
+    # model.vis.map.force = 0.3
 
-# initialize visualization data structures
-mj.mjv_defaultCamera(cam)
-scene = mj.MjvScene(model, maxgeom=10000)
-context = mj.MjrContext(model, mj.mjtFontScale.mjFONTSCALE_150.value)
+    # install GLFW mouse and keyboard callbacks
+    glfw.set_key_callback(window, keyboard)
+    glfw.set_cursor_pos_callback(window, mouse_move)
+    glfw.set_mouse_button_callback(window, mouse_button)
+    glfw.set_scroll_callback(window, scroll)
 
-# initialize visualization contact forces
-mj.mjv_defaultOption(opt)
-opt.flags[mj.mjtVisFlag.mjVIS_CONTACTPOINT] = True
-opt.flags[mj.mjtVisFlag.mjVIS_CONTACTFORCE] = True
-opt.flags[mj.mjtVisFlag.mjVIS_TRANSPARENT] = True
-# # tweak scales of contact visualization elements
-# model.vis.scale.contactwidth = 0.1
-# model.vis.scale.contactheight = 0.03
-# model.vis.scale.forcewidth = 0.05
-# model.vis.map.force = 0.3
-
-# install GLFW mouse and keyboard callbacks
-glfw.set_key_callback(window, keyboard)
-glfw.set_cursor_pos_callback(window, mouse_move)
-glfw.set_mouse_button_callback(window, mouse_button)
-glfw.set_scroll_callback(window, scroll)
-
-cam.azimuth = 89.608063
-cam.elevation = -11.588379
-cam.distance = 5.0
-cam.lookat = np.array([0.0, 0.0, 1.5])
+    cam.azimuth = 89.608063
+    cam.elevation = -11.588379
+    cam.distance = 5.0
+    cam.lookat = np.array([0.0, 0.0, 1.5])
 
 init_controller(model,data)
 #v_flight(model, data, -1.5)
@@ -493,11 +502,10 @@ M = np.zeros((model.nv,model.nv))
 # theta2 = []
 
 zdes = -1.5
-
-mj.mj_comVel(model, data)
-mj.mj_comPos(model, data)
-while not glfw.window_should_close(window):
+going_up_Q = False
+while not animate or not glfw.window_should_close(window):
     simstart = data.time
+    # realtimestart = time.clock_gettime_ns()
 
     while (data.time - simstart < 1.0/60.0):
         #simulation step
@@ -532,53 +540,56 @@ while not glfw.window_should_close(window):
     if (data.time>=simend):
         break;
     
+
+    if data.qvel[Index.z.value] > 0:
+        going_up_Q =True
+    if (going_up_Q and data.qvel[Index.z.value] < 0):
+        break
     
     
-    # mom_obs = momentum_observer(model= model, data= data)
-    # obs_x.append(mom_obs[0])
-    # obs_y.append(mom_obs[1])
-    # obs_z.append(mom_obs[2])
+    if animate:    
+        # mom_obs = momentum_observer(model= model, data= data)
+        # obs_x.append(mom_obs[0])
+        # obs_y.append(mom_obs[1])
+        # obs_z.append(mom_obs[2])
+        
+        # f_xyz = np.linalg.pinv(foot_jacobian(model, data).T)@ data.actuator_force
+        
+        # applied_x.append(-f_xyz[0])
+        # applied_y.append(-f_xyz[1])
+        # applied_z.append(-f_xyz[2])
+        # print(mom_obs)
+        #print(mode)
+        # get framebuffer viewport
+        viewport_width, viewport_height = glfw.get_framebuffer_size(
+            window)
+        viewport = mj.MjrRect(0, 0, viewport_width, viewport_height)
+
+        # print("Mass is {}".format(model.body_mass))
+        # M = np.zeros((model.nv, model.nv))
+        # _functions.mj_fullM(model, M, data.qM)
+        # print(M)
+        # print(" And ")
+        # print(get_M(model, data))
+        # print("----------------------")
     
-    # f_xyz = np.linalg.pinv(foot_jacobian(model, data).T)@ data.actuator_force
-    
-    # applied_x.append(-f_xyz[0])
-    # applied_y.append(-f_xyz[1])
-    # applied_z.append(-f_xyz[2])
-    # print(mom_obs)
-    #print(mode)
-    # get framebuffer viewport
-    viewport_width, viewport_height = glfw.get_framebuffer_size(
-        window)
-    viewport = mj.MjrRect(0, 0, viewport_width, viewport_height)
 
-    # print("Mass is {}".format(model.body_mass))
-    # M = np.zeros((model.nv, model.nv))
-    # _functions.mj_fullM(model, M, data.qM)
-    # print(M)
-    # print(" And ")
-    # print(get_M(model, data))
-    # print("----------------------")
-   
-    print(data.qfrc_bias)
-    print("and")
-    C = get_C(model, data)@data.qvel - g_force(data)
-    print(C)
-    print("------------")
-    # Show joint frames
-    opt.flags[mj.mjtVisFlag.mjVIS_JOINT] = 1
 
-    # Update scene and render
-    #cam.lookat[0] = data.qpos[2] #camera follows the robot
-    mj.mjv_updateScene(model, data, opt, None, cam,
-                       mj.mjtCatBit.mjCAT_ALL.value, scene)
-    mj.mjr_render(viewport, scene, context)
+        # Show joint frames
+        opt.flags[mj.mjtVisFlag.mjVIS_JOINT] = 1
 
-    cam.lookat = np.array([data.qpos[0], 0.0, 1.5])
-    # swap OpenGL buffers (blocking call due to v-sync)
-    glfw.swap_buffers(window)
+        # Update scene and render
+        #cam.lookat[0] = data.qpos[2] #camera follows the robot
+        mj.mjv_updateScene(model, data, opt, None, cam,
+                        mj.mjtCatBit.mjCAT_ALL.value, scene)
+        mj.mjr_render(viewport, scene, context)
 
-    # process pending GUI events, call GLFW callbacks
-    glfw.poll_events()
+        cam.lookat = np.array([data.qpos[0], 0.0, 1.5])
+        # swap OpenGL buffers (blocking call due to v-sync)
+        glfw.swap_buffers(window)
+
+        # process pending GUI events, call GLFW callbacks
+        glfw.poll_events()
 
         
 
@@ -587,7 +598,7 @@ glfw.terminate()
 x = np.arange(0,len(modes))
 
 
-
+#try plotting delta t?
 figures, axs = plt.subplots(3, sharex=True)
 
 axs[0].plot(contact_x, color="crimson",  label='Mujoco')
@@ -618,10 +629,10 @@ axs[1].set_title("Y-Contact")
 axs[1].legend()
 
 
-axs[2].plot(contact_z, color="crimson",  label='Mujoco')
-axs[2].plot(obs_z, color="royalblue",  label='Observer')
-axs[2].plot(applied_z, color='limegreen', label='Applied', alpha=0.9)
-
+axs[2].plot(contact_z, marker='o', color="crimson", label='Mujoco',)
+axs[2].plot(obs_z,  marker='o', color="royalblue",  label='Observer')
+axs[2].plot(applied_z,  marker='o', color='limegreen', label='Applied', alpha=0.9)
+axs[2].axhline(contact_force_tol, linestyle= "--")
 detect = axs[2].get_ybound()[1]*np.array(contact)
 guard = axs[2].get_ybound()[1]*np.array(modes)
 
