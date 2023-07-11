@@ -13,10 +13,10 @@ import time
 from momentum_obs import *
 xml_path = 'leg2.xml'
 simend = 6
-animate = True
+animate = False
 
 step_no = 0
-theta_des = -0.055
+THETA_FF = -0.055
 modes = []     
 z_height = []
 
@@ -43,6 +43,7 @@ obs_y =[]
 obs_z =[]
 
 contact_force_tol = 50
+theta_des_SLIP = THETA_FF
 
 
 def get_comPos(model, data):
@@ -191,16 +192,18 @@ def SLIP_stance(model, data):
 def touchdown_angle(xdot,rtd = 1.5,xd = 0):
     T = 0.2
     k_x = 0.15
+    print (xdot)
+
     return np.arcsin((-xdot*T/2 + k_x*(xd-xdot))/rtd)
 
 body_x_velocity = []
 com_pos = []
 contact = []
 
-def SLIP(model, data):
+def SLIP(model, data, con = 1):
     tol = 7*1e-2
     stance_h = 1.7
-
+    
     #v_flight(model, data, stance_h)
     g =  np.array([9.81 * Params.M_total.value, 0])
     J = Jq_r(model, data)
@@ -209,9 +212,11 @@ def SLIP(model, data):
     # mode 0 - flight/touchdown
     # mode 1 - stance
  
-    r,theta = radial(model, data)
+    r,_ = radial(model, data)
+    
     delta_z = abs(r-stance_h)
-    global theta_des
+    global THETA_FF
+    global theta_des_SLIP
     vel = foot_jacobian(model, data) @ data.qvel[Index.q1.value:]
     
     xdot = -vel[0]
@@ -237,8 +242,8 @@ def SLIP(model, data):
     toe_frame = np.array([[np.cos(q1q2),0,-np.sin(q1q2)],[0,1,0],[np.sin(q1q2),0,np.cos(q1q2)]])
     forcetorque_w= toe_frame@ forcetorque[0:3]
     
-    contact_x.append(forcetorque_w[0])
-    contact_y.append(forcetorque_w[1])
+    #contact_x.append(forcetorque_w[0])
+    #contact_y.append(forcetorque_w[1])
     contact_z.append(forcetorque_w[2])
     
     
@@ -246,8 +251,8 @@ def SLIP(model, data):
     #Quasistatic
     f_xyz = np.linalg.pinv(foot_jacobian(model, data).T)@ data.actuator_force
     
-    applied_x.append(-f_xyz[0])
-    applied_y.append(-f_xyz[1])
+    # applied_x.append(-f_xyz[0])
+    # applied_y.append(-f_xyz[1])
     applied_z.append(-f_xyz[2])
 
     #plot when actually in contact
@@ -259,22 +264,30 @@ def SLIP(model, data):
     #COM plots
 
     if mode == 0:
-        SLIP_flight(model, data, rdes = stance_h, theta_des = theta_des)
-
+        SLIP_flight(model, data, rdes = stance_h, theta_des = theta_des_SLIP)
         #if obs_z[-1] >= contact_force_tol and dR[0]<=0 :
-        if applied_z[-1] >= contact_force_tol and dR[0]<0:
-        #if delta_z >= tol and dR[0]<0:
-            
-            mode = 1
+        #if applied_z[-1] >= contact_force_tol and dR[0]<0:
+        if con == 1:
+            if delta_z >= tol and dR[0]<0:
+
+                mode = 1
+        
+        elif con == 2:
+            if obs_z[-1] >= contact_force_tol and dR[0]<=0 :
+                mode = 1
+        
+        elif con == 3:
+            if applied_z[-1] >= contact_force_tol and dR[0]<0:
+                mode = 1
 
     elif mode == 1:
         #Toe_control(model, data, forward_kinematics(model, data)[2])
         SLIP_stance(model, data)
-        #if delta_z <= tol and dR[0]>0:
+        if delta_z <= tol and dR[0]>0:
         #if obs_z[-1] <= k and dR[0]>0:
-        if applied_z[-1] >= contact_force_tol and dR[0]<0:
+        #if applied_z[-1] >= contact_force_tol and dR[0]<0:
             theta_ff = 0.055
-            theta_des = touchdown_angle(xdot, stance_h,0) + theta_ff
+            theta_des_SLIP = touchdown_angle(xdot, stance_h, 0) + theta_ff
             mode = 0
 
     
@@ -351,11 +364,24 @@ def vhad_control(model, data):
     
     z_height.append(forward_kinematics(model, data)[2])
 
-    
+def inverse_kinematic(r_des = 1.7,th_des=THETA_FF):
+    l1 = Params.l1.value
+    l2 = Params.l2.value
+    # print("QUICK TEST:",(l1*l1 + l2*l2 - r_des*r_des)/(2*l1*l2))
+    q2 = np.pi - np.arccos((l1**2 + l2**2-r_des**2)/(2*l1*l2)) 
+
+    q1 = th_des - 0.5*q2
+    return q1, q2
+
 def init_controller(model,data):
-    
-    data.qpos[Index.q1.value] = -0.7367
-    data.qpos[Index.q2.value] = 1.0845
+    stance = 1.7
+    theta =-0.055
+    q1,q2 = inverse_kinematic(stance, theta)
+    # q2 = 1.7
+    # q1 = -q2/2
+    data.qpos[Index.q1.value] = q1
+    data.qpos[Index.q2.value] = q2
+    print("INIT:", q1, "   ", q2)
     
     
 
@@ -447,7 +473,6 @@ model = mj.MjModel.from_xml_path('leg2.xml')  # MuJoCo model
 data = mj.MjData(model)                # MuJoCo data
 cam = mj.MjvCamera()                        # Abstract camera
 opt = mj.MjvOption()                        # visualization options
-
 if animate:
     # Init GLFW, create window, make OpenGL context current, request v-sync
     glfw.init()
@@ -483,170 +508,170 @@ if animate:
     cam.distance = 5.0
     cam.lookat = np.array([0.0, 0.0, 1.5])
 
-init_controller(model,data)
-#v_flight(model, data, -1.5)
-#set the controller
+def run(con = 1):
 
-forcetorque = np.zeros(6)
-# contact_x = []
-# contact_y = []
-# contact_z = []
-M = np.zeros((model.nv,model.nv))
+    global THETA_FF
+    global theta_des_SLIP
+    global mode
+    global window, scene, context
+    global model, data, opt, cam
 
-
-
-# obs_x =[]
-# obs_y =[]
-# obs_z =[]
-# theta1 = []
-# theta2 = []
-
-zdes = -1.5
-going_up_Q = False
-while not animate or not glfw.window_should_close(window):
-    simstart = data.time
-    # realtimestart = time.clock_gettime_ns()
-
-    while (data.time - simstart < 1.0/60.0):
-        #simulation step
-        mj.mj_step(model, data)
-        # Apply control
-        
-        #SLIP_flight(model, data)
-        #SLIP_stance(model, data)
-        SLIP(model, data)
-    
-    
-    #z_height.append(radial(model, data)[1])
+    mj.mj_resetData(model, data)
+    theta_des_SLIP = THETA_FF
+    mode = 0
+    init_controller(model,data)
+    #v_flight(model, data, -1.5)
+    #set the controller
 
     forcetorque = np.zeros(6)
-    # for j,c in enumerate(data.contact):
-    #     mj.mj_contactForce(model, data, j, forcetorque)
+    # contact_x = []
+    # contact_y = []
+    # contact_z = []
+    M = np.zeros((model.nv,model.nv))
 
-    # q1q2 = np.pi/2#data.qpos[Index.q1.value] + data.qpos[Index.q2.value]
-    # toe_frame = np.array([[np.cos(q1q2),0,-np.sin(q1q2)],[0,1,0],[np.sin(q1q2),0,np.cos(q1q2)]])
-    # forcetorque_w= toe_frame@ forcetorque[0:3]
-    
-    # contact_x.append(forcetorque_w[0])
-    # contact_y.append(forcetorque_w[1])
-    # contact_z.append(forcetorque_w[2])
-    
-    #modes.append(mode)
-    # if data.nefc:
-    #     contact.append(1)
-    # else:
-    #     contact.append(0)
-    
-    if (data.time>=simend):
-        break;
-    
+    # obs_x =[]
+    # obs_y =[]
+    # obs_z =[]
+    # theta1 = []
+    # theta2 = []
 
-    if data.qvel[Index.z.value] > 0:
-        going_up_Q =True
-    if (going_up_Q and data.qvel[Index.z.value] < 0):
-        break
-    
-    
-    if animate:    
-        # mom_obs = momentum_observer(model= model, data= data)
-        # obs_x.append(mom_obs[0])
-        # obs_y.append(mom_obs[1])
-        # obs_z.append(mom_obs[2])
+    tau_prev = P_prev =  np.zeros(model.nq)
+
+    going_up_Q = False
+    while not animate or not glfw.window_should_close(window):
+        simstart = data.time
+        # realtimestart = time.clock_gettime_ns()
+
+        while (data.time - simstart < 1.0/60.0):
+            #simulation step
+            mj.mj_step(model, data)
+            # Apply control
+            
+            #SLIP_flight(model, data)
+            #SLIP_stance(model, data)
+            SLIP(model, data, con)
         
-        # f_xyz = np.linalg.pinv(foot_jacobian(model, data).T)@ data.actuator_force
         
-        # applied_x.append(-f_xyz[0])
-        # applied_y.append(-f_xyz[1])
-        # applied_z.append(-f_xyz[2])
-        # print(mom_obs)
-        #print(mode)
-        # get framebuffer viewport
-        viewport_width, viewport_height = glfw.get_framebuffer_size(
-            window)
-        viewport = mj.MjrRect(0, 0, viewport_width, viewport_height)
+        #z_height.append(radial(model, data)[1])
 
-        # print("Mass is {}".format(model.body_mass))
-        # M = np.zeros((model.nv, model.nv))
-        # _functions.mj_fullM(model, M, data.qM)
-        # print(M)
-        # print(" And ")
-        # print(get_M(model, data))
-        # print("----------------------")
+        forcetorque = np.zeros(6)
+        
+        if (data.time>=simend):
+            break;
+        
+
+        if data.qvel[Index.z.value] > 0:
+            going_up_Q =True
+        if (going_up_Q and data.qvel[Index.z.value] < 0):
+            break
+        
+        
+        if animate:    
+            
+            viewport_width, viewport_height = glfw.get_framebuffer_size(
+                window)
+            viewport = mj.MjrRect(0, 0, viewport_width, viewport_height)
+
+            # Show joint frames
+            opt.flags[mj.mjtVisFlag.mjVIS_JOINT] = 1
+
+            # Update scene and render
+            #cam.lookat[0] = data.qpos[2] #camera follows the robot
+            mj.mjv_updateScene(model, data, opt, None, cam,
+                            mj.mjtCatBit.mjCAT_ALL.value, scene)
+            mj.mjr_render(viewport, scene, context)
+
+            cam.lookat = np.array([data.qpos[0], 0.0, 1.5])
+            # swap OpenGL buffers (blocking call due to v-sync)
+            glfw.swap_buffers(window)
+
+            # process pending GUI events, call GLFW callbacks
+            glfw.poll_events()
+
+def t_delta(mode, contact):
+    tdelta = 0
+    for i in range(len(mode)):
+        if mode[i] == 0 and contact[i] == 1:
+            tdelta += 1
+        if mode[i] == 1 and contact[i] == 1:
+            break
     
+    return tdelta
+
+modes = []
+contact =[]
+run(1)
+modes1 = np.array(modes)
+contact1 = np.array(contact)
+mj_contact1 = np.array(contact_z)
+obs_contact1 = np.array(obs_z)
 
 
-        # Show joint frames
-        opt.flags[mj.mjtVisFlag.mjVIS_JOINT] = 1
+obs_x=[]
+obs_z =[]
+modes = []
+contact =[]
+contact_z = []
+run(2)
+modes2 = np.array(modes)
+contact2 = np.array(contact)
+z_contact = np.array(obs_z)
+mj_contact2 = np.array(contact_z)
 
-        # Update scene and render
-        #cam.lookat[0] = data.qpos[2] #camera follows the robot
-        mj.mjv_updateScene(model, data, opt, None, cam,
-                        mj.mjtCatBit.mjCAT_ALL.value, scene)
-        mj.mjr_render(viewport, scene, context)
 
-        cam.lookat = np.array([data.qpos[0], 0.0, 1.5])
-        # swap OpenGL buffers (blocking call due to v-sync)
-        glfw.swap_buffers(window)
 
-        # process pending GUI events, call GLFW callbacks
-        glfw.poll_events()
 
-        
+
+
+applied_z =[]
+modes = []
+contact =[]
+contact_z = []
+run(3)
+modes3 = np.array(modes)
+contact3 = np.array(contact)
+mj_contact3 = np.array(contact_z)
 
 glfw.terminate()
 
-x = np.arange(0,len(modes))
+x = np.arange(0,len(modes1))
 
 
 #try plotting delta t?
 figures, axs = plt.subplots(3, sharex=True)
 
-axs[0].plot(contact_x, color="crimson",  label='Mujoco')
-axs[0].plot(obs_x,color="royalblue", label='Observer')
-axs[0].plot(applied_x,color='limegreen',  label='Applied', alpha=0.6)
 
-detect = axs[0].get_ybound()[1]*np.array(contact)
-guard = axs[0].get_ybound()[1]*np.array(modes)
+#detect = axs[0].get_ybound()[1]*np.array(contact1)
 
-axs[0].fill_between(x,detect,color="slategrey", alpha=0.8)
-axs[0].fill_between(x,guard,color="orange", alpha=0.25)
-
-axs[0].set_title("X-Contact")
+x = np.arange(0,len(modes1))
+axs[0].plot(mj_contact1, color="royalblue", label="Mujoco")
+axs[0].plot(obs_contact1, color="crimson", label="Observer")
+axs[0].fill_between(x,axs[0].get_ybound()[1]*contact1,color="slategrey", alpha=0.8)
+axs[0].fill_between(x,axs[0].get_ybound()[1]*modes1,color="orange", alpha=0.25)
+axs[0].set_title(" Delta r guard")
 axs[0].legend()
 
 
-axs[1].plot(contact_y, color="crimson", label='Mujoco')
-axs[1].plot(obs_y,color="royalblue",label='Observer')
-axs[1].plot(applied_y,color='limegreen',  label='Applied', alpha=0.9)
 
-detect = axs[1].get_ybound()[1]*np.array(contact)
-guard = axs[1].get_ybound()[1]*np.array(modes)
-
-axs[1].fill_between(x,detect,color="slategrey", alpha=0.8)
-axs[1].fill_between(x,guard,color="orange", alpha=0.25)
-
-axs[1].set_title("Y-Contact")
+x = np.arange(0,len(modes2))
+axs[1].plot(mj_contact2, color="royalblue", label="Mujoco")
+axs[1].plot(z_contact, color="crimson", label="Observer")
+axs[1].fill_between(x,axs[1].get_ybound()[1]*contact2,color="slategrey", alpha=0.8)
+axs[1].fill_between(x,axs[1].get_ybound()[1]*modes2,color="orange", alpha=0.25)
+axs[1].axhline(contact_force_tol, linestyle= "--")
+axs[1].set_title(" Observer guard")
 axs[1].legend()
 
-
-axs[2].plot(contact_z, marker='o', color="crimson", label='Mujoco',)
-axs[2].plot(obs_z,  marker='o', color="royalblue",  label='Observer')
-axs[2].plot(applied_z,  marker='o', color='limegreen', label='Applied', alpha=0.9)
+x = np.arange(0,len(modes3))
+axs[2].plot(mj_contact3, color="royalblue", label="Mujoco")
+axs[2].plot(applied_z, color="crimson", label="Applied force")
+axs[2].fill_between(x,axs[2].get_ybound()[1]*contact3,color="slategrey", alpha=0.8)
+axs[2].fill_between(x,axs[2].get_ybound()[1]*modes3,color="orange", alpha=0.25)
 axs[2].axhline(contact_force_tol, linestyle= "--")
-detect = axs[2].get_ybound()[1]*np.array(contact)
-guard = axs[2].get_ybound()[1]*np.array(modes)
-
-axs[2].fill_between(x,detect,color="slategrey", alpha=0.8)
-axs[2].fill_between(x,guard,color="orange", alpha=0.25)
-
-axs[2].set_title("Z-Contact")
+axs[2].set_title("Applied force guard")
 axs[2].legend()
-
-# plt.figure()
-# plt.plot(modes, color = 'r', linestyle = '--')
-# plt.plot(contact, color = 'g')
-
 
 
 plt.subplots_adjust(hspace=0.5)
 plt.show()
+
