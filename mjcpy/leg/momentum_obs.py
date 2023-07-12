@@ -9,22 +9,27 @@ from kinematics import *
 model = mj.MjModel.from_xml_path('leg2.xml') 
 data = mj.MjData(model)  
 
-def g_force(data):
-
+def g_force(data, param):
+    """
+    get gravity forces
+    """
     G = np.zeros(model.nq)
 
     g = -9.81
-    q1 = data.qpos[Index.q1.value]
-    q2 = data.qpos[Index.q2.value]
+    q1 = data.sensordata[Sensor.q1pos.value]
+    q2 = data.sensordata[Sensor.q2pos.value]
 
-    l1 = Params.l1.value
-    l2 = Params.l2.value
+    #param = Params()
+    l1 = param.l1
+    l2 = param.l2
 
-    m_l1 = Params.M_l1.value
-    m_l2 = Params.M_l2.value
-    m_toe = Params.M_toe.value
+    m_l1 = param.M_l1
+    m_l2 = param.M_l2
+    m_toe = param.M_toe
+    m_total = param.M_total
+
     G[0] = 0
-    G[1] = g*(Params.M_total.value)
+    G[1] = g*(m_total)
     G[2] = 0.5*g*(l1*(m_l1 + 2*(m_l2+m_toe))*np.sin(q1) + l2*(m_l2+2*m_toe)*np.sin(q1+q2))
     G[3] = 0.5*l2*g*(m_l2 + 2*m_toe)*np.sin(q1+q2)
 
@@ -32,24 +37,29 @@ def g_force(data):
     
 tau_prev = P_prev =  np.zeros(model.nq)
 
-def get_M(model, data):
+def get_M(model, data, param):
+    """
+    Mass matrix for this specific leg type
+    """
     M = np.zeros((model.nq, model.nq))
 
-    q1 = data.qpos[Index.q1.value]
-    q2 = data.qpos[Index.q2.value]
+    q1 = data.sensordata[Sensor.q1pos.value]
+    q2 = data.sensordata[Sensor.q2pos.value]
 
-    l1 = Params.l1.value
-    l2 = Params.l2.value
+    #param = Params()
+    l1 = param.l1
+    l2 = param.l2
 
-    m_l1 = Params.M_l1.value
-    m_l2 = Params.M_l2.value
-    m_toe = Params.M_toe.value
+    m_l1 = param.M_l1
+    m_l2 = param.M_l2
+    m_toe = param.M_toe
+    m_total = param.M_total
 
-    I_l1 = Params.I1.value
-    I_l2 = Params.I2.value
-    I_t = Params.I_toe.value
+    I_l1 = param.I1
+    I_l2 = param.I2
+    I_t = param.I_toe
 
-    M[0,0] =M[1,1] =  Params.M_total.value
+    M[0,0] =M[1,1] =  m_total
     
      
     M[3, 3] = I_l2 + I_t + (l2**2)*(0.25*m_l2 + m_toe)
@@ -74,24 +84,25 @@ def get_M(model, data):
     
     return M
 
-def get_C(model, data):
+def get_C(model, data, param):
+    """
+    Coriolis matrix for this leg type
+
+    """
     C = np.zeros((model.nq,model.nq))
-    q1 = data.qpos[Index.q1.value]
-    q2 = data.qpos[Index.q2.value]
+    q1 = data.sensordata[Sensor.q1pos.value]
+    q2 = data.sensordata[Sensor.q2pos.value]
 
-    q1dot = data.qvel[Index.q1.value]
-    q2dot = data.qvel[Index.q2.value]
+    q1dot = data.sensordata[Sensor.q1vel.value]
+    q2dot = data.sensordata[Sensor.q2vel.value]
 
-    l1 = Params.l1.value
-    l2 = Params.l2.value
+    #param = Params()
+    l1 = param.l1
+    l2 = param.l2
 
-    m_l1 = Params.M_l1.value
-    m_l2 = Params.M_l2.value
-    m_toe = Params.M_toe.value
-
-    I_l1 = Params.I1.value
-    I_l2 = Params.I2.value
-    I_t = Params.I_toe.value
+    m_l1 = param.M_l1
+    m_l2 = param.M_l2
+    m_toe = param.M_toe
 
     C[0,2] = 0.5*(l1*(m_l1 + 2*(m_l2 + m_toe))*np.sin(q1) \
                   + l2*(m_l2 + 2*m_toe)*np.sin(q1+q2)) *q1dot \
@@ -114,24 +125,28 @@ def get_C(model, data):
 
     return C
 
-def momentum_observer(model,data):
+def momentum_observer(model,data, param):
+    """
+    big boy momentum observer
+    """
 
     global P_prev, tau_prev
 
     #Constructing M from the sparse matrix qM
     #M = np.zeros((model.nv, model.nv))
     #_functions.mj_fullM(model, M, data.qM)
-    M = get_M(model, data) #3X3
+    M = get_M(model, data, param = param) #3X3
 
     #GETTING foot JACOBIAN
-    J = foot_jacobian(model, data)
+    J = foot_jacobian(model, data, param)
 
-    C = get_C(model, data)  #3X3
+    C = get_C(model, data, param)  #3X3
     # C = get_C(model, data) # Cq + G term
 
-    pdot = J@data.qvel[Index.q1.value:]
-
-    v = np.array([0,0, data.qvel[Index.q1.value], data.qvel[Index.q2.value]])
+    q1dot = data.sensordata[Sensor.q1vel.value]
+    q2dot = data.sensordata[Sensor.q2vel.value]
+    v = np.array([0,0, data.sensordata[Sensor.q1vel.value], 
+                  data.sensordata[Sensor.q2vel.value]])
     
     #X and Z joint has no force
     tau_ext = np.array([0,0, data.actuator_force[0], data.actuator_force[1]]) #3
@@ -143,7 +158,7 @@ def momentum_observer(model,data):
     freq = 100 # cut-off frequency 
     gamma = np.exp(-freq*t_delta)
     beta = (1-gamma)/(gamma*t_delta)
-    alpha_k = beta*P + tau_ext + C.T@v - g_force(data)
+    alpha_k = beta*P + tau_ext + C.T@v - g_force(data, param)
     tau_d = beta*(P -gamma*P_prev) + gamma*(tau_prev)+(gamma-1)*alpha_k  
 
     tau_prev = tau_d

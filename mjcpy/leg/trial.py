@@ -12,8 +12,8 @@ import time
 
 from momentum_obs import *
 xml_path = 'leg2.xml'
-simend = 6
-animate = False
+simend = 15
+animate = True
 
 step_no = 0
 THETA_FF = -0.055
@@ -45,26 +45,28 @@ obs_z =[]
 contact_force_tol = 50
 theta_des_SLIP = THETA_FF
 
+#param = Params()
 
-def get_comPos(model, data):
+def get_comPos(data):
+    """
+    com position and velocity cuz mujoco's sucks
+    """
+    q1 = data.sensordata[Sensor.q1pos.value]
+    q2 = data.sensordata[Sensor.q2pos.value]
 
-    q1 = data.qpos[Index.q1.value]
-    q2 = data.qpos[Index.q2.value]
+    #param = Params()
+    l1 = param.l1
+    l2 = param.l2
 
-    l1 = Params.l1.value
-    l2 = Params.l2.value
+    m_hip = param.M_hip
+    m_l1 = param.M_l1
+    m_l2 = param.M_l2
+    m_toe = param.M_toe
 
-    m_hip = Params.M_hip.value
-    m_l1 = Params.M_l1.value
-    m_l2 = Params.M_l2.value
-    m_toe = Params.M_toe.value
+   
 
-    I_l1 = Params.I1.value
-    I_l2 = Params.I2.value
-    I_t = Params.I_toe.value
-
-    q1dot = data.qvel[Index.q1.value]
-    q2dot = data.qvel[Index.q2.value]
+    q1dot = data.sensordata[Sensor.q1vel.value]
+    q2dot = data.sensordata[Sensor.q2vel.value]
 
     #World Frame
     xhip = data.qpos[Index.x.value]
@@ -98,8 +100,8 @@ def get_comPos(model, data):
 
 def pid_controller(model, data):
     """
-    This function implements a controller that
-    mimics the forces of a fixed joint before release
+    pid control (doesnt use sensor data)
+
     """
     global error_i
     kp = 0.5*np.array([7,14])
@@ -126,14 +128,21 @@ def pid_controller(model, data):
 
 
 
-def SLIP_flight(model, data, rdes = 1.7, theta_des = -0.2):
-    
-    r, theta = radial(model, data)
-    J = Jq_r(model, data)
-    dR = J @ data.qvel[Index.q1.value:]
-    g =  np.array([-9.81 * (Params.M_total.value-Params.M_hip.value), 0 ])
-    kp = 20
-    kd = 30
+def SLIP_flight(model, data, param , rdes = 1.7, theta_des = -0.2):
+    """
+    Given desired radial specs(r, theta), controls flight pose
+    not for contact, add g term if needed
+    """
+    #param = Params()
+    M_hip = param.M_hip
+    M_total = param.M_total
+
+    r, theta = radial( data, param)
+    J = Jq_r(model, data, param)
+    dR = J @ data.sensordata[Sensor.q1vel.value:]
+    g =  np.array([-9.81 * (M_total-M_hip), 0 ])
+    kp = 30
+    kd = 25
     
    
     f = np.array([kp*(rdes - r) + kd*(-dR[0]), 80*(theta_des - theta) +10*(-dR[1]) ])
@@ -145,10 +154,13 @@ def SLIP_flight(model, data, rdes = 1.7, theta_des = -0.2):
     data.ctrl[1] = tau[1]
 
 def Toe_control(model, data, zdes):
+    """
+    controls toe position
+    """
     z = forward_kinematics(model, data)[2]
     Jtoe = foot_jacobian(model, data)
 
-    zdot = Jtoe @ data.qvel[Index.q1.value:]
+    zdot = Jtoe @ data.sensordata[Sensor.q1vel.value:]
 
     f = np.array([0, 0, 150*(zdes- z) + 50*(-zdot[2])])
     g =  np.array([0, 0, -9.81 * Params.M_total.value ])
@@ -160,14 +172,20 @@ def Toe_control(model, data, zdes):
     
 
 
-def SLIP_stance(model, data):
-    q1 = data.qpos[Index.q1.value]
-    q2 = data.qpos[Index.q2.value]
+def SLIP_stance(model, data, param ):
+    """
+    active damping controller for touchdown-stance-takeoff
+    """
+    # q1 =  data.sensordata[Sensor.q1pos.value]
+    # q2 = data.sensordata[Sensor.q2pos.value]
     
-    r, theta = radial(model, data)
+    #param = Params()
+    M_total = param.M_total
+
+    r, theta = radial( data, param)
     #zdot = data.qvel[Index.z.value]
-    J = Jq_r(model, data)
-    dR = J @ data.qvel[Index.q1.value:]
+    J = Jq_r(model, data, param)
+    dR = J @ data.sensordata[Sensor.q1vel.value:]
     #nominal height
     p = 1.5
     w = 23
@@ -180,7 +198,7 @@ def SLIP_stance(model, data):
     E = w*w*(p-r)- beta*dR[0] -ka*np.cos(phi)
     u = np.array([E,  0])  
 
-    g =  np.array([ -9.81 * Params.M_total.value,0])
+    g =  np.array([ -9.81 * M_total,0])
     U = u - g
     U[0] = np.max([0.0,U[0]])
     tau = J.T@ U
@@ -190,47 +208,53 @@ def SLIP_stance(model, data):
     data.ctrl[1] = tau[1]
 
 def touchdown_angle(xdot,rtd = 1.5,xd = 0):
+    """
+    finds touchdown angle for each hop using raibert hopping
+    """
     T = 0.2
-    k_x = 0.15
-    print (xdot)
-
+    k_x = 0.1
     return np.arcsin((-xdot*T/2 + k_x*(xd-xdot))/rtd)
 
 body_x_velocity = []
 com_pos = []
 contact = []
 
-def SLIP(model, data, con = 1):
+def SLIP(model, data, param, con = 1):
+    """
+    Big boy controller that handles all stages of hopping using the 
+    flight and stance control
+
+    """
     tol = 7*1e-2
     stance_h = 1.7
     
+    #param = Params()
+    M_total = param.M_total
+
     #v_flight(model, data, stance_h)
-    g =  np.array([9.81 * Params.M_total.value, 0])
-    J = Jq_r(model, data)
-    dR = J @ data.qvel[Index.q1.value:]
+    g =  np.array([9.81 *M_total, 0])
+    J = Jq_r( model,data, param)
+    dR = J @ data.sensordata[Sensor.q1vel.value:]#data.qvel[Index.q1.value:]
     global mode
     # mode 0 - flight/touchdown
     # mode 1 - stance
  
-    r,_ = radial(model, data)
+    r,_ = radial( data, param)
     
     delta_z = abs(r-stance_h)
     global THETA_FF
     global theta_des_SLIP
-    vel = foot_jacobian(model, data) @ data.qvel[Index.q1.value:]
+    vel = foot_jacobian(model, data, param) @ data.sensordata[Sensor.q1vel.value:]
     
     xdot = -vel[0]
     
     #momentum observer
-    mom_obs = momentum_observer(model= model, data= data)
+    mom_obs = momentum_observer(model= model, data= data, param = param)
     obs_x.append(mom_obs[0])
     obs_y.append(mom_obs[1])
     obs_z.append(mom_obs[2])
-    k = 20
-    #print(vel[0])
+   
 
-
-    
     modes.append(mode)
     #z_height.append(xdot)
     #xcom,_,xcomdot, zcomdot = get_comPos(model, data)
@@ -249,7 +273,7 @@ def SLIP(model, data, con = 1):
     
 
     #Quasistatic
-    f_xyz = np.linalg.pinv(foot_jacobian(model, data).T)@ data.actuator_force
+    f_xyz = np.linalg.pinv(foot_jacobian(model, data, param).T)@ data.actuator_force
     
     # applied_x.append(-f_xyz[0])
     # applied_y.append(-f_xyz[1])
@@ -264,7 +288,7 @@ def SLIP(model, data, con = 1):
     #COM plots
 
     if mode == 0:
-        SLIP_flight(model, data, rdes = stance_h, theta_des = theta_des_SLIP)
+        SLIP_flight(model, data, param, rdes = stance_h, theta_des = theta_des_SLIP)
         #if obs_z[-1] >= contact_force_tol and dR[0]<=0 :
         #if applied_z[-1] >= contact_force_tol and dR[0]<0:
         if con == 1:
@@ -282,7 +306,7 @@ def SLIP(model, data, con = 1):
 
     elif mode == 1:
         #Toe_control(model, data, forward_kinematics(model, data)[2])
-        SLIP_stance(model, data)
+        SLIP_stance(model, data, param)
         if delta_z <= tol and dR[0]>0:
         #if obs_z[-1] <= k and dR[0]>0:
         #if applied_z[-1] >= contact_force_tol and dR[0]<0:
@@ -295,6 +319,9 @@ def SLIP(model, data, con = 1):
 
 
 def v_flight(model,data, zdes= -2 ,vdes=0):
+    """
+    vertical hopping flight control(need to change xml to only z slide)
+    """
     q1 = data.qpos[Index.q1.value]
     q2 = data.qpos[Index.q2.value]
     X = forward_kinematics(model,data) # [x,0,z]^T
@@ -312,6 +339,9 @@ def v_flight(model,data, zdes= -2 ,vdes=0):
     data.ctrl[1] = tau[1]
 
 def vhad_stance(model, data):
+    """
+    vertical hopping active damping stance control(need to change xml to only z slide)
+    """
     q1 = data.qpos[Index.q1.value]
     q2 = data.qpos[Index.q2.value]
     z = forward_kinematics(model, data)[2]
@@ -339,7 +369,9 @@ def vhad_stance(model, data):
     data.ctrl[1] = tau[1]
 
 def vhad_control(model, data):
-    
+    """
+    vertical hopping control , same as SLIP
+    """
     tol = 8*1e-2
     stance_h = -1.5
     
@@ -364,24 +396,33 @@ def vhad_control(model, data):
     
     z_height.append(forward_kinematics(model, data)[2])
 
-def inverse_kinematic(r_des = 1.7,th_des=THETA_FF):
-    l1 = Params.l1.value
-    l2 = Params.l2.value
+def inverse_kinematic(param, r_des = 1.7,th_des=THETA_FF):
+    """
+    inverse kinematic to set initial conditions(valid for this particular leg model)
+    """
+    #param = Params()
+    l1 = param.l1
+    l2 = param.l2
+
+
     # print("QUICK TEST:",(l1*l1 + l2*l2 - r_des*r_des)/(2*l1*l2))
     q2 = np.pi - np.arccos((l1**2 + l2**2-r_des**2)/(2*l1*l2)) 
 
     q1 = th_des - 0.5*q2
     return q1, q2
 
-def init_controller(model,data):
+def init_controller(model,data, param):
+    """
+    init state setter
+    """
     stance = 1.7
     theta =-0.055
-    q1,q2 = inverse_kinematic(stance, theta)
+    q1,q2 = inverse_kinematic(param, stance, theta)
     # q2 = 1.7
     # q1 = -q2/2
     data.qpos[Index.q1.value] = q1
     data.qpos[Index.q2.value] = q2
-    print("INIT:", q1, "   ", q2)
+    #
     
     
 
@@ -508,8 +549,11 @@ if animate:
     cam.distance = 5.0
     cam.lookat = np.array([0.0, 0.0, 1.5])
 
-def run(con = 1):
-
+def run(param, con = 1):
+    """
+    run sims for particular guards
+    con - 1 is guard using change in radial r, con-2 obersver, con-3 quasistatic force
+    """
     global THETA_FF
     global theta_des_SLIP
     global mode
@@ -519,7 +563,7 @@ def run(con = 1):
     mj.mj_resetData(model, data)
     theta_des_SLIP = THETA_FF
     mode = 0
-    init_controller(model,data)
+    init_controller( model, data, param)
     #v_flight(model, data, -1.5)
     #set the controller
 
@@ -531,7 +575,7 @@ def run(con = 1):
 
     # obs_x =[]
     # obs_y =[]
-    # obs_z =[]
+    obs_z =[]
     # theta1 = []
     # theta2 = []
 
@@ -549,7 +593,7 @@ def run(con = 1):
             
             #SLIP_flight(model, data)
             #SLIP_stance(model, data)
-            SLIP(model, data, con)
+            SLIP(model, data, param, con)
         
         
         #z_height.append(radial(model, data)[1])
@@ -559,11 +603,11 @@ def run(con = 1):
         if (data.time>=simend):
             break;
         
-
-        if data.qvel[Index.z.value] > 0:
-            going_up_Q =True
-        if (going_up_Q and data.qvel[Index.z.value] < 0):
-            break
+        ### Breaks sim after after 1 rotation of touchdown-stance-takeoff
+        # if data.qvel[Index.z.value] > 0:
+        #     going_up_Q =True
+        # if (going_up_Q and data.qvel[Index.z.value] < 0):
+        #     break
         
         
         if animate:    
@@ -589,6 +633,9 @@ def run(con = 1):
             glfw.poll_events()
 
 def t_delta(mode, contact):
+    """
+    finds guard response time to contact
+    """
     tdelta = 0
     for i in range(len(mode)):
         if mode[i] == 0 and contact[i] == 1:
@@ -598,9 +645,46 @@ def t_delta(mode, contact):
     
     return tdelta
 
+### Data for response times
+# delta1 = []
+# delta2 = []
+# delta3 = []
+
+# dev = []
+# for i in range(3):
+#     for _ in range(50):    
+#         modes = []
+#         contact = []
+#         param = Params(make_random=True, std_dev = i/10)
+        
+        
+#         run(param)
+#         delta1.append(t_delta(modes, contact))
+        
+#         modes = []
+#         contact = []
+        
+    
+#         run(param, con=2)
+#         delta2.append(t_delta(modes, contact))
+
+#         modes = []
+#         contact = []
+        
+
+#         run(param, con=3)
+#         delta3.append(t_delta(modes, contact))
+#     dev.append(i/10)
+###    
+
+### Standalone plot for response times
+param = Params(make_random=True, std_dev=0.1)
+#run(param, con=2)
+
+### Comparision plot 
 modes = []
 contact =[]
-run(1)
+run(param, con=1)
 modes1 = np.array(modes)
 contact1 = np.array(contact)
 mj_contact1 = np.array(contact_z)
@@ -612,7 +696,7 @@ obs_z =[]
 modes = []
 contact =[]
 contact_z = []
-run(2)
+run(param, con=2)
 modes2 = np.array(modes)
 contact2 = np.array(contact)
 z_contact = np.array(obs_z)
@@ -621,18 +705,57 @@ mj_contact2 = np.array(contact_z)
 
 
 
-
-
 applied_z =[]
 modes = []
 contact =[]
 contact_z = []
-run(3)
+run(param, con=3)
 modes3 = np.array(modes)
 contact3 = np.array(contact)
 mj_contact3 = np.array(contact_z)
 
+
 glfw.terminate()
+
+
+### Plotting response times
+def plot_response_time(delta1, delta2, delta3, dev):
+    print(len(dev))
+    print(len(delta1))
+    guard1 = np.array(delta1).reshape(3,50)
+    guard2 =  np.array(delta2).reshape(3,50)
+    guard3 =  np.array(delta3).reshape(3,50)
+
+    plt.style.use('ggplot')
+    plt.ylim(-2, 60)
+    for i in range(50):
+        
+        plt.scatter(dev, guard1[:,i], c="limegreen")
+
+        plt.scatter(dev, guard2[:,i], c="royalblue")
+
+        plt.scatter(dev, guard3[:,i], c="crimson")
+
+    from matplotlib.lines import Line2D
+    custom_lines = [Line2D([0], [0], color = "limegreen", lw=2),
+                    Line2D([0], [0], color= "royalblue", lw=2),
+                    Line2D([0], [0], color= "crimson", lw=2)]
+
+    plt.xlabel("Deviation")
+    plt.ylabel("Delta t(ms)")
+    plt.axhline(0, ls ="--", color="k")
+    plt.legend(custom_lines, ['Delta r', 'Observer', 'Applied force'])
+    plt.show()
+###
+
+def obs_vs_mj(obs_z, contact_z):
+    ### Standalone
+    plt.plot(obs_z, label="Observer")
+    plt.plot(contact_z, label="Mujoco", alpha = 0.7)
+    plt.legend()
+    plt.show()
+
+### Contact observation and modes comparison plot
 
 x = np.arange(0,len(modes1))
 
@@ -674,4 +797,3 @@ axs[2].legend()
 
 plt.subplots_adjust(hspace=0.5)
 plt.show()
-
