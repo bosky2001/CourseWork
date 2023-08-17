@@ -5,18 +5,91 @@ import numpy as np
 from numpy.linalg import inv
 import os
 import matplotlib.pyplot as plt
-
+from enum import Enum
 xml_path = 'twist.xml'
 simend = 20
 
 step_no = 0
 
-FSM_AIR1 = 0
-FSM_STANCE1 = 1
-FSM_STANCE2 = 2
-FSM_AIR2 = 3
+class Params:
+    def __init__(self, model, leg, Fixed = True):
+        if( leg == "FL"):
+            self.abd_id = model.joint('joint_8').id
+            self.Upper_id = model.joint('joint_0').id
+            self.Lower_id = model.joint('joint_1').id
+            self.body_id = model.body('lower0').id
+            self.jac_s = 7
+            self.jac_e = 10
+            self.ctrl_range = [model.actuator("FL Abductor").id , model.actuator("FL Upper").id, model.actuator("FL Lower").id]
+        
+        if( leg == "RL"):
+            self.abd_id = model.joint('joint_9').id
+            self.Upper_id = model.joint('joint_2').id
+            self.Lower_id = model.joint('joint_3').id
+            self.body_id = model.body('lower2').id
+            self.jac_s = 10
+            self.jac_e = 13
+            self.ctrl_range = [model.actuator("RL Abductor").id , model.actuator("RL Upper").id, model.actuator("RL Lower").id]
+        
+        if( leg == "FR"):
+            self.abd_id = model.joint('joint_10').id
+            self.Upper_id = model.joint('joint_4').id
+            self.Lower_id = model.joint('joint_5').id
+            self.body_id = model.body('lower1').id
+            self.jac_s = 13
+            self.jac_e = 16
+            self.ctrl_range = [model.actuator("FR Abductor").id , model.actuator("FR Upper").id, model.actuator("FR Lower").id]
+        
+        if( leg == "RR"):
+            self.abd_id = model.joint('joint_11').id
+            self.Upper_id = model.joint('joint_6').id
+            self.Lower_id = model.joint('joint_7').id
+            self.body_id = model.body('lower3').id
+            self.jac_s = 16
+            self.jac_e = 19
+            self.ctrl_range = [model.actuator("RR Abductor").id , model.actuator("RR Upper").id, model.actuator("RR Lower").id]
+        
 
-fsm = FSM_AIR1
+        if Fixed == False:
+            if( leg == "FL"):
+                self.abd_id = 8#model.joint('joint_8').id
+                self.Upper_id = 9#model.joint('joint_0').id
+                self.Lower_id = 10 #model.joint('joint_1').id
+                self.body_id = model.body('lower0').id
+                self.jac_s = 7
+                self.jac_e = 10
+                self.ctrl_range = [model.actuator("FL Abductor").id , model.actuator("FL Upper").id, model.actuator("FL Lower").id]
+        
+            if( leg == "RL"):
+                self.abd_id = 14#model.joint('joint_9').id
+                self.Upper_id = 15#model.joint('joint_2').id
+                self.Lower_id = 16#model.joint('joint_3').id
+                self.body_id = model.body('lower2').id
+                self.jac_s = 10
+                self.jac_e = 13
+                self.ctrl_range = [model.actuator("RL Abductor").id , model.actuator("RL Upper").id, model.actuator("RL Lower").id]
+            
+            if( leg == "FR"):
+                self.abd_id = 11#model.joint('joint_10').id
+                self.Upper_id = 12#model.joint('joint_4').id
+                self.Lower_id = 13# model.joint('joint_5').id
+                self.body_id = model.body('lower1').id
+                self.jac_s = 13
+                self.jac_e = 16
+                self.ctrl_range = [model.actuator("FR Abductor").id , model.actuator("FR Upper").id, model.actuator("FR Lower").id]
+        
+            if( leg == "RR"):
+                self.abd_id = 17 #model.joint('joint_11').id
+                self.Upper_id = 18 #model.joint('joint_6').id
+                self.Lower_id = 19 #model.joint('joint_7').id
+                self.body_id = model.body('lower3').id
+                self.jac_s = 16
+                self.jac_e = 19
+                self.ctrl_range = [model.actuator("RR Abductor").id , model.actuator("RR Upper").id, model.actuator("RR Lower").id]
+
+
+
+
 
 # For callback functions
 button_left = False
@@ -25,12 +98,57 @@ button_right = False
 lastx = 0
 lasty = 0
 
+def FL_pose(model, data, leg_id, pose = np.array([0, -0.8, -1.4]) , posevel=np.array([0, 0, 0])):
+    abd_des = pose[0]
+    Upper_des = pose[1]
+    lower_des = pose[2]
+
+    abdvel_des = posevel[0]
+    Uppervel_des = posevel[1]
+    lowervel_des = posevel[2]
+
+    leg = Params(model, leg_id, Fixed= False)
+    
+    # Kp = np.array([2.5, 3.5, 1]) FOR FIXED
+    # Kd = np.array([1, 2, 1])
+
+    Kp = np.array([ 30, 30, 30]) 
+    Kd = np.array([1, 1, 1])
+
+    p_error = np.array([abd_des - data.qpos[leg.abd_id], 
+                        Upper_des - data.qpos[leg.Upper_id],
+                        lower_des - data.qpos[leg.Lower_id]])
+    
+    d_error = np.array([abdvel_des - data.qvel[leg.abd_id-1], 
+                        Uppervel_des - data.qvel[leg.Upper_id-1],
+                        lowervel_des - data.qvel[leg.Lower_id-1]])
+    
+    
+    
+    u = Kp*p_error + Kd*d_error
+    jac = np.zeros((3,model.nv))
+    mj.mj_jacSubtreeCom(model, data, jac, leg.body_id)
+    tau = u # + jac[:,leg.jac_s:leg.jac_e].T@np.array([0, 0, -13.5*9.81])
+    print(tau)
+    data.ctrl[leg.ctrl_range[0]] = tau[0]
+    data.ctrl[leg.ctrl_range[1]] = tau[1]
+    data.ctrl[leg.ctrl_range[2]] = tau[2]
+
+    
 def controller(model, data):
     """
     This function implements a controller that
     mimics the forces of a fixed joint before release
     """
-    pass
+    FL_pose(model, data, "FL")
+    
+    FL_pose(model, data, "RL")
+    FL_pose(model, data, "FR")
+    FL_pose(model, data, "RR")
+    data.ctrl[model.actuator("Spine Torque").id] = 5*np.sin(4*2*np.pi*data.time)
+    
+    
+   
 
 def init_controller(model,data):
     # pservo-hip
@@ -169,8 +287,9 @@ contact_x = []
 contact_y = []
 contact_z = []
 M = np.zeros((model.nv,model.nv))
-jac_com = np.zeros((3, model.nv))
 
+
+    
 obs_x =[]
 obs_y =[]
 obs_z =[]
@@ -192,7 +311,7 @@ while not glfw.window_should_close(window):
         viewport_width, viewport_height = glfw.get_framebuffer_size(
             window)
         viewport = mj.MjrRect(0, 0, viewport_width, viewport_height)
-
+       
         # Update scene and render
         cam.lookat[2] = data.qpos[0] #camera will follow qpos
         mj.mjv_updateScene(model, data, opt, None, cam,
