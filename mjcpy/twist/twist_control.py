@@ -1,13 +1,17 @@
 import mujoco as mj
 from mujoco import _functions
 from mujoco.glfw import glfw
+
+from mujoco import viewer
 import numpy as np
 from numpy.linalg import inv
 import os
 import matplotlib.pyplot as plt
 from enum import Enum
+
+import time
 xml_path = 'twist.xml'
-simend = 20
+simend = 30
 
 step_no = 0
 
@@ -113,7 +117,7 @@ def FL_pose(model, data, leg_id, pose = np.array([0, -0.8, -1.4]) , posevel=np.a
     # Kd = np.array([1, 2, 1])
 
     Kp = np.array([ 30, 30, 30]) 
-    Kd = np.array([1, 1, 1])
+    Kd = np.array([ 1, 1, 1])
 
     p_error = np.array([abd_des - data.qpos[leg.abd_id], 
                         Upper_des - data.qpos[leg.Upper_id],
@@ -129,7 +133,7 @@ def FL_pose(model, data, leg_id, pose = np.array([0, -0.8, -1.4]) , posevel=np.a
     jac = np.zeros((3,model.nv))
     mj.mj_jacSubtreeCom(model, data, jac, leg.body_id)
     tau = u # + jac[:,leg.jac_s:leg.jac_e].T@np.array([0, 0, -13.5*9.81])
-    print(tau)
+    
     data.ctrl[leg.ctrl_range[0]] = tau[0]
     data.ctrl[leg.ctrl_range[1]] = tau[1]
     data.ctrl[leg.ctrl_range[2]] = tau[2]
@@ -145,7 +149,7 @@ def controller(model, data):
     FL_pose(model, data, "RL")
     FL_pose(model, data, "FR")
     FL_pose(model, data, "RR")
-    data.ctrl[model.actuator("Spine Torque").id] = 5*np.sin(4*2*np.pi*data.time)
+    data.ctrl[model.actuator("Spine Torque").id] = 8*np.sin(2*data.time)
     
     
    
@@ -259,7 +263,7 @@ context = mj.MjrContext(model, mj.mjtFontScale.mjFONTSCALE_150.value)
 # initialize visualization contact forces
 mj.mjv_defaultOption(opt)
 opt.flags[mj.mjtVisFlag.mjVIS_CONTACTPOINT] = True
-# opt.flags[mj.mjtVisFlag.mjVIS_CONTACTFORCE] = True
+opt.flags[mj.mjtVisFlag.mjVIS_CONTACTFORCE] = True
 # opt.flags[mj.mjtVisFlag.mjVIS_TRANSPARENT] = True
 # # tweak scales of contact visualization elements
 # model.vis.scale.contactwidth = 0.1
@@ -273,7 +277,7 @@ glfw.set_cursor_pos_callback(window, mouse_move)
 glfw.set_mouse_button_callback(window, mouse_button)
 glfw.set_scroll_callback(window, scroll)
 
-cam.azimuth = 89.608063
+cam.azimuth = 15.608063
 cam.elevation = -11.588379
 cam.distance = 5.0
 cam.lookat = np.array([0.0, 0.0, 1.5])
@@ -294,35 +298,27 @@ obs_x =[]
 obs_y =[]
 obs_z =[]
 last_time = 0
-while not glfw.window_should_close(window):
-    simstart = data.time
+with viewer.launch_passive(model, data) as viewer:
+  # Close the viewer automatically after 30 wall-seconds.
+  start = time.time()
+  while viewer.is_running() and time.time() - start < simend:
+    step_start = time.time()
 
-    while (data.time - simstart < 1.0/60.0):
-        mj.mj_step(model, data)
-    
+    # mj_step can be replaced with code that also evaluates
+    # a policy and applies a control signal before stepping the physics.
+    mj.mj_step(model, data)
 
-    if (data.time>=simend):
-        break;
-    if (data.time - last_time)>1/60.0:
-        last_time = data.time
-      
+    # Example modification of a viewer option: toggle contact points every two seconds.
+    with viewer.lock():
+      viewer.opt.flags[mj.mjtVisFlag.mjVIS_CONTACTPOINT] = int(data.time % 2)
 
-        # get framebuffer viewport
-        viewport_width, viewport_height = glfw.get_framebuffer_size(
-            window)
-        viewport = mj.MjrRect(0, 0, viewport_width, viewport_height)
-       
-        # Update scene and render
-        cam.lookat[2] = data.qpos[0] #camera will follow qpos
-        mj.mjv_updateScene(model, data, opt, None, cam,
-                        mj.mjtCatBit.mjCAT_ALL.value, scene)
-        mj.mjr_render(viewport, scene, context)
+    # Pick up changes to the physics state, apply perturbations, update options from GUI.
+    viewer.sync()
 
-        # swap OpenGL buffers (blocking call due to v-sync)
-        glfw.swap_buffers(window)
+    # Rudimentary time keeping, will drift relative to wall clock.
+    time_until_next_step = model.opt.timestep - (time.time() - step_start)
+    if time_until_next_step > 0:
+      time.sleep(time_until_next_step)
 
-        # process pending GUI events, call GLFW callbacks
-        glfw.poll_events()
 
-glfw.terminate()
 
