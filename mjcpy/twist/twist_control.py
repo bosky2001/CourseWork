@@ -15,7 +15,7 @@ simend = 30
 
 step_no = 0
 
-class Params:
+class Leg_id:
     def __init__(self, model, leg, Fixed = True):
         if( leg == "FL"):
             self.abd_id = model.joint('joint_8').id
@@ -91,7 +91,26 @@ class Params:
                 self.jac_e = 19
                 self.ctrl_range = [model.actuator("RR Abductor").id , model.actuator("RR Upper").id, model.actuator("RR Lower").id]
 
+def a2h(id):
+    if id=="FL" or id == "RL":
+        return 0.06
+    elif id=="FR" or id == "RR":
+        return -0.06
 
+def Rx(theta):
+  return np.matrix([[ 1, 0           , 0           ],
+                   [ 0, np.cos(theta),-np.sin(theta)],
+                   [ 0, np.sin(theta), np.cos(theta)]])
+  
+def Ry(theta):
+  return np.matrix([[ np.cos(theta), 0, np.sin(theta)],
+                   [ 0           , 1, 0           ],
+                   [-np.sin(theta), 0, np.cos(theta)]])
+  
+def Rz(theta):
+  return np.matrix([[ np.cos(theta), -np.sin(theta), 0 ],
+                   [ np.sin(theta), np.cos(theta) , 0 ],
+                   [ 0           , 0            , 1 ]])
 
 
 
@@ -111,12 +130,12 @@ def FL_pose(model, data, leg_id, pose = np.array([0, -0.8, -1.6]) , posevel=np.a
     Uppervel_des = posevel[1]
     lowervel_des = posevel[2]
 
-    leg = Params(model, leg_id, Fixed= True)
+    leg = Leg_id(model, leg_id, Fixed= True)
     
     # Kp = np.array([2.5, 3.5, 1]) #FOR FIXED
     # Kd = np.array([1, 2, 1])
 
-    Kp = np.array([ 75, 45, 35]) 
+    Kp = np.array([ 75, 75, 95]) 
     Kd = np.array([ 1.5, 1.5, 1.5])
 
     p_error = np.array([abd_des - data.qpos[leg.abd_id], 
@@ -138,42 +157,201 @@ def FL_pose(model, data, leg_id, pose = np.array([0, -0.8, -1.6]) , posevel=np.a
     data.ctrl[leg.ctrl_range[1]] = tau[1]
     data.ctrl[leg.ctrl_range[2]] = tau[2]
 
-def ad_control(model, data):
-    qhip = data.qpos[model.joint("joint_0").id]
-    qknee = data.qpos[model.joint("joint_1").id]
-    l1 = l2 = 0.206 
-    r = l1*np.cos(qhip) + l2*np.cos(qknee )
-    print(r)
+
+
+def get_joint_angles(model, data, id):
+    leg = Leg_id(model, id)
+    return np.array([data.qpos[leg.abd_id], data.qpos[leg.Upper_id], data.qpos[leg.Lower_id] ])
+
+def forward_kinematics(model, data, id):
+    
+    [qabd, qhip, qknee] = get_joint_angles(model, data, id)
+    l1 = l2 = 0.206
+    
+
+    x = -l1*np.sin(qhip) - l2*np.sin(qhip + qknee)
+    y = 0
+    z = -l1*np.cos(qhip) - l2*np.cos(qhip + qknee)
+
+    Rx = np.matrix([[1, 0, 0], [0, np.cos(qabd), -np.sin(qabd)], [0, np.sin(qabd), np.cos(qabd)]])
+
+    return np.array(Rx@np.array([x,y,z])) 
+
+
+def forward_kinematics2(model, data, id):
+    
+    [qabd, qhip, qknee] = get_joint_angles(model, data, id)
+    
+    l1 = l2 = 0.206
+    
+    offset_k2t = np.array([0, 0, -l2])
+    offset_h2k = np.array([0, 0, -l1])
+    offset_a2h = np.array([0, a2h(id), 0])
+    
+    k2t = Ry(qknee) @ offset_k2t
+    
+    h2t = Ry(qhip) @ (k2t + offset_h2k).T
+    
+    a2t = Rx(qabd) @ (h2t + np.reshape(offset_a2h,(3,1)))
+    
+
+    return np.array(a2t) 
+
+def Jq_c(model, data, id):
+    J = np.zeros((3, 3))
+    [qabd, qhip, qknee] = get_joint_angles(model, data, id)
+
+    Abd_off = a2h(id)
+    print(f"AbducOffset for {id}: {Abd_off}")
+    l1 = l2 = 0.206
+    J[0, 0] = 0
+    J[0, 1] = -l1*np.cos(qhip) - l2*np.cos(qhip+ qknee)
+    J[0, 2] = - l2*np.cos(qhip+ qknee)
+
+    J[1,0] = np.cos(qabd)*(l1*np.cos(qhip) + l2*np.cos(qhip+qknee)) -Abd_off*np.sin(qabd)
+    J[1,1] = -np.sin(qabd)*(l1*np.sin(qhip) + l2*np.sin(qhip+qknee))
+    J[1,2] = - l2*np.sin(qabd)*np.sin(qhip + qknee)
+
+
+    J[2, 0] = Abd_off*np.cos(qabd) + (l1*np.cos(qhip) + l2*np.cos(qhip+qknee))*np.sin(qabd)
+    J[2, 1] = np.cos(qabd)*(l1*np.sin(qhip) + l2*np.sin(qhip+qknee))
+    J[2, 2] = l2*np.cos(qabd) *np.sin(qhip+ qknee)
+    return J
+
+def xyz_pose(model, data, leg_id, pose = np.array([0., 0, -0.26]) , posevel=np.array([0, 0, 0])):
+
+    X = forward_kinematics2(model, data, leg_id)
+    J = Jq_c(model, data, leg_id)
+
+    leg = Leg_id(model, leg_id, Fixed= True)
+    dX = J@data.qvel[leg.abd_id: leg.Lower_id+1]
 
     
-def spine_control(model, data, qdes =  0, qdotdes = 0):
+    
+    # Kp = np.array([2.5, 3.5, 1]) #FOR FIXED
+    # Kd = np.array([1, 2, 1])
+
+    Kp = np.array([ 500, 500, 500]) 
+    Kd = np.array([ 5, 5, 5 ])
+
+    print(X)
+    print(pose)
+    p_error = np.array([pose[0]-X[0, 0], pose[1]-X[1, 0], pose[2]-X[2, 0]])
+
+    print(p_error)
+    d_error =  np.array([posevel[0]-dX[0], posevel[1]-dX[1], posevel[2]-dX[2]])
+    
+    u = Kp*p_error + Kd*d_error
+    
+    tau = J.T@ (u+0*np.array([ 0,0,-130/2]))
+    print(X)
+    data.ctrl[leg.ctrl_range[0]] = tau[0]
+    data.ctrl[leg.ctrl_range[1]] = tau[1]
+    data.ctrl[leg.ctrl_range[2]] = tau[2]
+    
+def ad_control(model, data):
+    
+    _,_,z1  = forward_kinematics(model, data, "FL")
+    _,_,z2 = forward_kinematics(model, data, "RR")
+    J1 = Jq_c(model, data, "FL")
+    J2 = Jq_c(model, data, "RR")
+
+    leg1 = Leg_id(model, "FL")
+    leg2 = Leg_id(model, "RR")
+
+    dX1 = J1 @ data.qvel[leg1.abd_id:leg1.Lower_id+1]
+    dX2 = J2 @ data.qvel[leg2.abd_id:leg2.Lower_id+1]
+    
+    z = 0.5*(z1+z2)
+    zdot = 0.5*(dX1[2] + dX2[2])
+
+    p = 0.35
+    w = 5
+    phi = np.arctan2( w*(p-z),-zdot)
+    
+    beta = 0
+    ka = 0
+    #fx = 25*(-x)+ 15*(-dX[0])
+    E = w*w*(p- z)- beta*zdot -ka*np.cos(phi)
+    u = np.array([0, 0, E])
+    tau = J.T@(u + np.array([0, 0, -9.81 * 13.5]) )
+    
+    data.ctrl[model.actuator("FL Abductor").id] = tau[0]
+    data.ctrl[model.actuator("FL Upper").id] = tau[1]
+    data.ctrl[model.actuator("FL Lower").id] = tau[2]
+
+def spine_pd_control(model, data, qdes =  0, qdotdes = 0):
     q = data.qpos[model.joint("spine").id]
     qdot =  data.qvel[model.joint("spine").id]
-    Kp = 250
+    Kp = 295
     Kd = 15
     u = Kp*(qdes-q) + Kd*(qdotdes-qdot)
     data.ctrl[model.actuator("Spine Torque").id] = u
-    
-    
+
+mode = 0
+def spine_SLIP(model, data):
+
+    # leg = Leg_id(leg_id)
+    J = Jq_c(model, data)
+    dX = J @ data.qvel[model.joint("joint_8").id: model.joint("joint_1").id+1]
+    _,_,z  = forward_kinematics(model, data)
+    delta_z = 0.4 - z
+    tol = 0.5
+    global mode
+    if mode == 0:
+        FL_pose(model, data, "FL")
+        if delta_z >= tol and dX[2]<0:
+
+            mode = 1
+
+    elif mode == 1:
+        
+        ad_control(model, data)
+        if delta_z <= tol and dX[2]>0:
+        
+            # theta_des_SLIP = touchdown_angle(xdot, stance_h, 0) + theta_ff
+            mode = 0
+
+  
 def controller(model, data):
     """
     This function implements a controller that
     mimics the forces of a fixed joint before release
     """
-    FL_pose(model, data, "FL")
+    #np.array([0, -0.8, -1.6]
+    # FL_pose(model, data, "FL", np.array([0, -1.4, -3]))
+    # FL_pose(model, data, "FL", np.array([-0.2, -0.8, -1.6]))
+    xyz_pose(model, data, "FL")
+    # xyz_pose(model, data, "FR")
+    # xyz_pose(model, data, "RL")
+    xyz_pose(model, data, "RR")
+    FL_pose(model, data, "RL", np.array([0, 1.4, -3]))
+    FL_pose(model, data, "FR", np.array([0, 1.4, -3]))
+    # FL_pose(model, data, "FR")
+    # FL_pose(model, data, "RR", np.array([0.2, -0.8, -1.6]))
+    # FL_pose(model, data, "FL", np.array([0, 0, 2.5]))
+    # FL_pose(model, data, "FR", np.array([0, 0, 0]))
+    # FL_pose(model, data, "RL", np.array([0, 0, 0]))
+    # FL_pose(model, data, "RR", np.array([0, 0, 0]))
     
-    FL_pose(model, data, "RL")
-    FL_pose(model, data, "FR", np.array([0, -1.57, -3.14]))
-    FL_pose(model, data, "RR", np.array([0, -1.57, -3.14]))
+    spine_pd_control(model, data, qdes= 0.2)
     
-    spine_control(model, data)
     
-    ad_control(model, data)
+
    
+def leg_init (model, data ,pose, id):
+    leg = Leg_id(model, id)
+    data.qpos[leg.abd_id] = pose[0]
+    data.qpos[leg.Upper_id] = pose[1]
+    data.qpos[leg.Lower_id] = pose[2]
 
 def init_controller(model,data):
     # pservo-hip
-    pass
+    leg_init(model, data, np.array([0, 0.8, -1.6]), "FL")
+    leg_init(model, data, np.array([0, 0.8, -1.6]), "FR")
+    leg_init(model, data, np.array([0, 0.8, -1.6]), "RL")
+    leg_init(model, data, np.array([0, 0.8, -1.6]), "RR")
+    
 
 
 def set_position_servo(actuator_no, kp):

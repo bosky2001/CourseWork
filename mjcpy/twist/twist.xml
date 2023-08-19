@@ -9,11 +9,11 @@
 		<headlight ambient="0.3 0.3 0.3" />
 	</visual>
   <worldbody>
-    <geom type="plane" size="1 1 0.1" rgba="0.9 0 0 1" pos="0 0 -0.6"/>
+    <geom type="plane" size="1 1 0.1" rgba="0.9 0 0 1" pos="0 0 -1"/>
     <body name="ROBOT BODY">
       <!-- <joint type="free"/> -->
-      <joint name="x" type="slide" pos="0 0 0"  axis="1 0 0" />
 			<joint name="z" type="slide"  axis="0 0 1" />
+      <joint name="x" type="hinge" pos="0 0 0"  axis="1 0 0" />
       <geom size="0.08375 0.12 0.052" type="box" contype="0" conaffinity="0" group="1" density="1000" rgba="0.25 0.25 0.25 0.5"/>
       
 
@@ -39,7 +39,7 @@
         <geom size="0.055 0.02" pos="0 -0.032 0" quat="0.707107 0.707107 0 0" type="cylinder" rgba="0.8 0.8 0.8 1"/>
         <body name="upper0" pos="0 0.06 0" euler="0 -1.57 0">
           <inertial pos="0 0 0" quat="0.5 0.5 0.5 0.5" mass="0.775" diaginertia="0.001 0.001 5e-05"/>
-          <joint name="joint_0" pos="0 0 0" axis="0 -1 0" range="-6.28319 6.28319"/>
+          <joint name="joint_0" pos="0 0 0" axis="0 1 0" range="-3.1415926 3.1415926"/>
           <geom size="0.103 0.011 0.0275" pos="-0.103 0 0" type="box" contype="0" conaffinity="0" group="1" density="0" rgba="0.68 0.68 0.68 1"/>
           <geom size="0.103 0.011 0.0275" pos="-0.103 0 0" type="box" rgba="0.68 0.68 0.68 1"/>
           <body name="lower0" pos="-0.206 0 0" >
@@ -62,7 +62,7 @@
         <geom size="0.055 0.02" pos="0 0.032 0" quat="0.707107 0.707107 0 0" type="cylinder" rgba="0.8 0.8 0.8 1"/>
         <body name="upper2" pos="0 -0.06 0" euler="0 -1.57 0">
           <inertial pos="0 0 0" quat="0.5 0.5 0.5 0.5" mass="0.775" diaginertia="0.001 0.001 5e-05"/>
-          <joint name="joint_4" pos="0 0 0" axis="0 -1 0" range="-6.28319 6.28319"/>
+          <joint name="joint_4" pos="0 0 0" axis="0 1 0" range="-3.1415926 3.1415926"/>
           <geom size="0.103 0.011 0.0275" pos="-0.103 0 0" type="box" contype="0" conaffinity="0" group="1" density="0" rgba="0.68 0.68 0.68 1"/>
           <geom size="0.103 0.011 0.0275" pos="-0.103 0 0" type="box" rgba="0.68 0.68 0.68 1"/>
           <body name="lower2" pos="-0.206 0 0" >
@@ -94,7 +94,7 @@
         <geom size="0.055 0.02" pos="0 -0.032 0" quat="0.707107 0.707107 0 0" type="cylinder" rgba="0.8 0.8 0.8 1"/>
         <body name="upper1" pos="0 0.06 0" euler="0 -1.57 0">
           <inertial pos="0 0 0" quat="0.5 0.5 0.5 0.5" mass="0.775" diaginertia="0.001 0.001 5e-05"/>
-          <joint name="joint_2" pos="0 0 0" axis="0 -1 0" range="-6.28319 6.28319"/>
+          <joint name="joint_2" pos="0 0 0" axis="0 1 0" range="-3.1415926 3.1415926"/>
           <geom size="0.103 0.011 0.0275" pos="-0.103 0 0" type="box" contype="0" conaffinity="0" group="1" density="0" rgba="0.68 0.68 0.68 1"/>
           <geom size="0.103 0.011 0.0275" pos="-0.103 0 0" type="box" rgba="0.68 0.68 0.68 1"/>
           <body name="lower1" pos="-0.206 0 0" euler="0 0 0">
@@ -117,7 +117,7 @@
         <geom size="0.055 0.02" pos="0 0.032 0" quat="0.707107 0.707107 0 0" type="cylinder" rgba="0.8 0.8 0.8 1"/>
         <body name="upper3" pos="0 -0.06 0" euler="0 -1.57 0">
           <inertial pos="0 0 0" quat="0.5 0.5 0.5 0.5" mass="0.775" diaginertia="0.001 0.001 5e-05"/>
-          <joint name="joint_6" pos="0 0 0" axis="0 -1 0" range="-6.28319 6.28319"/>
+          <joint name="joint_6" pos="0 0 0" axis="0 1 0" range="-3.1415926 3.1415926"/>
           <geom size="0.103 0.011 0.0275" pos="-0.103 0 0" type="box" contype="0" conaffinity="0" group="1" density="0" rgba="0.68 0.68 0.68 1"/>
           <geom size="0.103 0.011 0.0275" pos="-0.103 0 0" type="box" rgba="0.68 0.68 0.68 1"/>
           <body name="lower3" pos="-0.206 0 0" euler="0 0 0">
