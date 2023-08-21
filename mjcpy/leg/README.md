@@ -7,9 +7,9 @@ The momentum observer applied here is in discrete time and the outputs are filte
 ![Hopping ](Hop.gif)
 
 
-## References & Special Thanks :star: :
+## References & Special Thanks  :
 This code is based on the following:
 
-* 1. Dynamically Stable Legged Locomotion  (https://www.ri.cmu.edu/pub_files/pub3/raibert_marc_h_1983_1/raibert_marc_h_1983_1.pdf)
-* 2. [Discrete Time filtered MBO for a simple pendulum](https://github.com/meghna30/gmm_obs_pendulum)
+*  Dynamically Stable Legged Locomotion  (https://www.ri.cmu.edu/pub_files/pub3/raibert_marc_h_1983_1/raibert_marc_h_1983_1.pdf)
+ [Discrete Time filtered MBO for a simple pendulum](https://github.com/meghna30/gmm_obs_pendulum)
 
