@@ -6,7 +6,7 @@ The momentum observer applied here is in discrete time and the outputs are filte
 
 
 ![**Vertical Hopping Only**](https://github.com/bosky2001/CourseWork/blob/main/mjcpy/leg/VerticalHop.gif)
-![**Hopping**](https://github.com/bosky2001/CourseWork/blob/main/mjcpy/leg/Hop.gif)
+
 
 
 ## References & Special Thanks  :
