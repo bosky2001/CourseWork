@@ -1,6 +1,7 @@
 # Legged Hopping Robot
-An FSM calls in the PD controller to maintain a particular pose in flight and an active damping controller for stance. After each cycle, a new touchdown angle is calculated using raibert hopping, and the pose is changed. Also implemented is the FSM with a momentum observer, proprioceptive methods, and change in length used to detect contact.
+The spring-loaded inverted pendulum (SLIP) describes gait with a point mass rebounding on spring legs. The model captures the center of mass dynamics observed in running animals and has become a basic gait template in biomechanics and robotics for studying the dynamics and control of compliant-legged locomotion. 
 
-
+To survey various contact detection methods, I used the SLIP model to generate a hopping gait for a single-legged robot. This was done using a state machine with 2 modes for flight and stance respectively. In flight mode, radial position control is applied to maintain a certain leg length and touchdown angle and in the stance mode, an active damping control is used to add energy to the system to make it hop. I use Raibert's formula to calculate the new touchdown angle for each mode switch from stance to flight. I have also implemented joint space, and position control which can also be used to achieve the same gaits. 
+The momentum observer applied here is in discrete time and the outputs are filtered with a given frequency. 
 ![Vertical Hopping Only](VerticalHop.gif)
 ![Hopping ](Hop.gif)
