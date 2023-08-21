@@ -163,6 +163,12 @@ def get_joint_angles(model, data, id):
     leg = Leg_id(model, id)
     return np.array([data.qpos[leg.abd_id], data.qpos[leg.Upper_id], data.qpos[leg.Lower_id] ])
 
+def get_vel(model, data, id):
+    leg = Leg_id(model, id)
+    J = Jq_c(model, data, id)
+
+    return J @ data.qvel[leg.abd_id: leg.Lower_id+1]
+
 def forward_kinematics(model, data, id):
     
     [qabd, qhip, qknee] = get_joint_angles(model, data, id)
@@ -177,10 +183,16 @@ def forward_kinematics(model, data, id):
 
     return np.array(Rx@np.array([x,y,z])) 
 
+def AbdtoBody(model, data, id, A2T):
+    if id=="FL":
+        pass
 
 def forward_kinematics2(model, data, id):
     
     [qabd, qhip, qknee] = get_joint_angles(model, data, id)
+
+    roll = data.qpos[1]
+    alpha = data.qpos[model.joint("spine").id]
     
     l1 = l2 = 0.206
     
@@ -193,7 +205,8 @@ def forward_kinematics2(model, data, id):
     h2t = Ry(qhip) @ (k2t + offset_h2k).T
     
     a2t = Rx(qabd) @ (h2t + np.reshape(offset_a2h,(3,1)))
-    
+
+
 
     return np.array(a2t) 
 
@@ -202,7 +215,7 @@ def Jq_c(model, data, id):
     [qabd, qhip, qknee] = get_joint_angles(model, data, id)
 
     Abd_off = a2h(id)
-    print(f"AbducOffset for {id}: {Abd_off}")
+    # print(f"AbducOffset for {id}: {Abd_off}")
     l1 = l2 = 0.206
     J[0, 0] = 0
     J[0, 1] = -l1*np.cos(qhip) - l2*np.cos(qhip+ qknee)
@@ -218,14 +231,17 @@ def Jq_c(model, data, id):
     J[2, 2] = l2*np.cos(qabd) *np.sin(qhip+ qknee)
     return J
 
-def xyz_pose(model, data, leg_id, pose = np.array([0., 0, -0.26]) , posevel=np.array([0, 0, 0])):
+
+nominal_z = -0.3
+
+def xyz_pose(model, data, leg_id, pose = np.array([0., 0, nominal_z]) , posevel=np.array([0, 0, 0])):
 
     X = forward_kinematics2(model, data, leg_id)
     J = Jq_c(model, data, leg_id)
 
     leg = Leg_id(model, leg_id, Fixed= True)
-    dX = J@data.qvel[leg.abd_id: leg.Lower_id+1]
-
+    # dX = J@data.qvel[leg.abd_id: leg.Lower_id+1]
+    dX = get_vel(model, data, leg_id)
     
     
     # Kp = np.array([2.5, 3.5, 1]) #FOR FIXED
@@ -234,25 +250,27 @@ def xyz_pose(model, data, leg_id, pose = np.array([0., 0, -0.26]) , posevel=np.a
     Kp = np.array([ 500, 500, 500]) 
     Kd = np.array([ 5, 5, 5 ])
 
-    print(X)
-    print(pose)
+    # print(X)
+    # print(pose)
     p_error = np.array([pose[0]-X[0, 0], pose[1]-X[1, 0], pose[2]-X[2, 0]])
 
-    print(p_error)
+    # print(p_error)
     d_error =  np.array([posevel[0]-dX[0], posevel[1]-dX[1], posevel[2]-dX[2]])
     
     u = Kp*p_error + Kd*d_error
     
     tau = J.T@ (u+0*np.array([ 0,0,-130/2]))
-    print(X)
+    print(X[2])
     data.ctrl[leg.ctrl_range[0]] = tau[0]
     data.ctrl[leg.ctrl_range[1]] = tau[1]
     data.ctrl[leg.ctrl_range[2]] = tau[2]
+
+
+delta = []
+def spine_AD(model, data, stance_z = nominal_z):
     
-def ad_control(model, data):
-    
-    _,_,z1  = forward_kinematics(model, data, "FL")
-    _,_,z2 = forward_kinematics(model, data, "RR")
+    _,_,z1  = forward_kinematics2(model, data, "FL")
+    _,_,z2 = forward_kinematics2(model, data, "RR")
     J1 = Jq_c(model, data, "FL")
     J2 = Jq_c(model, data, "RR")
 
@@ -262,54 +280,85 @@ def ad_control(model, data):
     dX1 = J1 @ data.qvel[leg1.abd_id:leg1.Lower_id+1]
     dX2 = J2 @ data.qvel[leg2.abd_id:leg2.Lower_id+1]
     
-    z = 0.5*(z1+z2)
-    zdot = 0.5*(dX1[2] + dX2[2])
+    z = -0.5*(z1+z2)
+    zdot = -0.5*(dX1[2] + dX2[2])
 
-    p = 0.35
-    w = 5
-    phi = np.arctan2( w*(p-z),-zdot)
-    
-    beta = 0
-    ka = 0
-    #fx = 25*(-x)+ 15*(-dX[0])
-    E = w*w*(p- z)- beta*zdot -ka*np.cos(phi)
-    u = np.array([0, 0, E])
-    tau = J.T@(u + np.array([0, 0, -9.81 * 13.5]) )
-    
-    data.ctrl[model.actuator("FL Abductor").id] = tau[0]
-    data.ctrl[model.actuator("FL Upper").id] = tau[1]
-    data.ctrl[model.actuator("FL Lower").id] = tau[2]
+    p = -stance_z
+    w = 5 #5
+    phi = np.arctan2( w*w*(p-z),-zdot)
+    delta_z = nominal_z - 0.5*(z1+z2)
+    delta.append(delta_z)
 
+    
+    # beta = 15
+    # ka = 1
+    beta = 1
+    ka = 1
+    #data.qpos[model.joint("spine").id]
+    E = w*w*(p-z) - beta*zdot -ka*np.cos(phi)
+    
+    print(E)
+    data.ctrl[model.actuator("Spine Torque").id] = E
+
+    
+    
+    
 def spine_pd_control(model, data, qdes =  0, qdotdes = 0):
     q = data.qpos[model.joint("spine").id]
     qdot =  data.qvel[model.joint("spine").id]
-    Kp = 295
-    Kd = 15
+    Kp = 150
+    Kd = 5
     u = Kp*(qdes-q) + Kd*(qdotdes-qdot)
     data.ctrl[model.actuator("Spine Torque").id] = u
 
 mode = 0
-def spine_SLIP(model, data):
+modes=[]
+gt_modes = []
+def spine_SLIP(model, data, stance_z = nominal_z):
 
     # leg = Leg_id(leg_id)
-    J = Jq_c(model, data)
-    dX = J @ data.qvel[model.joint("joint_8").id: model.joint("joint_1").id+1]
-    _,_,z  = forward_kinematics(model, data)
-    delta_z = 0.4 - z
-    tol = 0.5
+    
+    _,_,z1  = forward_kinematics2(model, data,"FL")
+    _,_,z2  = forward_kinematics2(model, data, "RR")
+    zdot1 = get_vel(model, data, "FL")[2]
+    zdot2 = get_vel(model, data, "RR")[2]
+    
+    delta_z = abs(stance_z - 0.5*(z1+z2))
+    tol = 0.06
     global mode
-    if mode == 0:
-        FL_pose(model, data, "FL")
-        if delta_z >= tol and dX[2]<0:
 
+    modes.append(mode)
+
+    
+    #plot when actually in contact
+    
+
+    if mode == 0:
+       
+        # xyz_pose(model, data, "FL")
+        FL_pose(model, data, "FL", np.array([-0.1, 0.8, -1.6]))
+        # FL_pose(model, data, "RL", np.array([-0.1, 0.8, -1.6]))
+        # FL_pose(model, data, "FR", np.array([-0.1, 0.8, -1.6]))
+        FL_pose(model, data, "RL", np.array([0, 1.4, -3]))
+        FL_pose(model, data, "FR", np.array([0, 1.4, -3]))
+        FL_pose(model, data, "RR", np.array([0.1, 0.8, -1.6]))
+        # xyz_pose(model, data, "RR")
+        spine_pd_control(model, data, qdes= 0)
+
+        if delta_z >= tol and 0.5*(zdot1+zdot2)<0:
             mode = 1
 
     elif mode == 1:
         
-        ad_control(model, data)
-        if delta_z <= tol and dX[2]>0:
+        spine_AD(model, data)
+        # FL_pose(model, data, "FL", np.array([-0.2, 0.8, -1.6]))
+        # FL_pose(model, data, "RL", np.array([0, 1.4, -3]))
+        # FL_pose(model, data, "FR", np.array([0, 1.4, -3]))
+
+        # FL_pose(model, data, "RR", np.array([0.2, 0.8, -1.6]))
         
-            # theta_des_SLIP = touchdown_angle(xdot, stance_h, 0) + theta_ff
+        if delta_z <= tol and 0.5*(zdot1+zdot2)>0:
+
             mode = 0
 
   
@@ -318,23 +367,21 @@ def controller(model, data):
     This function implements a controller that
     mimics the forces of a fixed joint before release
     """
-    #np.array([0, -0.8, -1.6]
-    # FL_pose(model, data, "FL", np.array([0, -1.4, -3]))
-    # FL_pose(model, data, "FL", np.array([-0.2, -0.8, -1.6]))
+
+    # FL_pose(model, data, "FL", np.array([-0.2, 0.8, -1.6]))
     xyz_pose(model, data, "FL")
-    # xyz_pose(model, data, "FR")
-    # xyz_pose(model, data, "RL")
+    xyz_pose(model, data, "FR")
+    xyz_pose(model, data, "RL")
     xyz_pose(model, data, "RR")
-    FL_pose(model, data, "RL", np.array([0, 1.4, -3]))
-    FL_pose(model, data, "FR", np.array([0, 1.4, -3]))
-    # FL_pose(model, data, "FR")
-    # FL_pose(model, data, "RR", np.array([0.2, -0.8, -1.6]))
-    # FL_pose(model, data, "FL", np.array([0, 0, 2.5]))
-    # FL_pose(model, data, "FR", np.array([0, 0, 0]))
-    # FL_pose(model, data, "RL", np.array([0, 0, 0]))
-    # FL_pose(model, data, "RR", np.array([0, 0, 0]))
+    # FL_pose(model, data, "RL", np.array([0, 1.4, -3]))
+    # FL_pose(model, data, "FR", np.array([0, 1.4, -3]))
     
-    spine_pd_control(model, data, qdes= 0.2)
+    # FL_pose(model, data, "RR", np.array([0.2, 0.8, -1.6]))
+    # # spine_SLIP(model, data)
+    spine_pd_control(model, data, qdes=0.2)
+    # spine_AD(model, data)
+    # spine_SLIP(model, data)
+    # print(forward_kinematics2(model, data,"FL")[2])
     
     
 
@@ -516,5 +563,7 @@ with viewer.launch_passive(model, data) as viewer:
     if time_until_next_step > 0:
       time.sleep(time_until_next_step)
 
-
-
+plt.plot(delta)
+plt.plot(modes, label="Tolerance detection")
+plt.legend()
+plt.show()
