@@ -5,7 +5,9 @@ To survey various contact detection methods, I used the SLIP model to generate a
 The momentum observer applied here is in discrete time and the outputs are filtered with a given frequency. 
 
 
-![Alt](https://github.com/bosky2001/CourseWork/blob/main/mjcpy/leg/VerticalHop.gif  "**Vertical Hopping Only**")
+#### Vertical Hopping and Hopping gaits
+![Alt](https://github.com/bosky2001/CourseWork/blob/main/mjcpy/leg/VerticalHop.gif)
+![Alt](https://github.com/bosky2001/CourseWork/blob/main/mjcpy/leg/Hop.gif)
 
 
 
