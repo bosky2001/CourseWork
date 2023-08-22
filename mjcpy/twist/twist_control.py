@@ -169,6 +169,26 @@ def get_vel(model, data, id):
 
     return J @ data.qvel[leg.abd_id: leg.Lower_id+1]
 
+def theta(model, data, id):
+
+    roll = 0  #data.qpos[model.joint("x").id]
+
+    alpha = data.qpos[model.joint("spine").id]
+
+    if id =="FL":
+        theta = roll + alpha/2
+
+    elif id == "FR":
+        theta = -roll +alpha/2
+    
+    elif id == "RL":
+        theta = roll - alpha/2
+    
+    elif id == "RR":
+        theta = -roll -alpha/2
+    
+    return theta
+    
 def forward_kinematics(model, data, id):
     
     [qabd, qhip, qknee] = get_joint_angles(model, data, id)
@@ -183,16 +203,12 @@ def forward_kinematics(model, data, id):
 
     return np.array(Rx@np.array([x,y,z])) 
 
-def AbdtoBody(model, data, id, A2T):
-    if id=="FL":
-        pass
+
 
 def forward_kinematics2(model, data, id):
     
     [qabd, qhip, qknee] = get_joint_angles(model, data, id)
 
-    roll = data.qpos[1]
-    alpha = data.qpos[model.joint("spine").id]
     
     l1 = l2 = 0.206
     
@@ -206,9 +222,10 @@ def forward_kinematics2(model, data, id):
     
     a2t = Rx(qabd) @ (h2t + np.reshape(offset_a2h,(3,1)))
 
+    qbody = theta(model, data, id)
 
 
-    return np.array(a2t) 
+    return Rx(qbody) @ a2t 
 
 def Jq_c(model, data, id):
     J = np.zeros((3, 3))
@@ -287,7 +304,7 @@ def spine_AD(model, data, stance_z = nominal_z):
     w = 5 #5
     phi = np.arctan2( w*w*(p-z),-zdot)
     delta_z = nominal_z - 0.5*(z1+z2)
-    delta.append(delta_z)
+    delta.append(delta_z[0,0])
 
     
     # beta = 15
@@ -311,6 +328,10 @@ def spine_pd_control(model, data, qdes =  0, qdotdes = 0):
     u = Kp*(qdes-q) + Kd*(qdotdes-qdot)
     data.ctrl[model.actuator("Spine Torque").id] = u
 
+    # _,_,z  = forward_kinematics2(model, data,"FL")
+    # delta_z = abs(nominal_z - z)
+    # delta.append(delta_z[0,0])
+
 mode = 0
 modes=[]
 gt_modes = []
@@ -324,7 +345,7 @@ def spine_SLIP(model, data, stance_z = nominal_z):
     zdot2 = get_vel(model, data, "RR")[2]
     
     delta_z = abs(stance_z - 0.5*(z1+z2))
-    tol = 0.06
+    tol = 0.04
     global mode
 
     modes.append(mode)
@@ -369,18 +390,17 @@ def controller(model, data):
     """
 
     # FL_pose(model, data, "FL", np.array([-0.2, 0.8, -1.6]))
-    xyz_pose(model, data, "FL")
-    xyz_pose(model, data, "FR")
-    xyz_pose(model, data, "RL")
-    xyz_pose(model, data, "RR")
+    # xyz_pose(model, data, "FL")
+    # xyz_pose(model, data, "FR")
+    # xyz_pose(model, data, "RL")
+    # xyz_pose(model, data, "RR")
     # FL_pose(model, data, "RL", np.array([0, 1.4, -3]))
     # FL_pose(model, data, "FR", np.array([0, 1.4, -3]))
     
     # FL_pose(model, data, "RR", np.array([0.2, 0.8, -1.6]))
-    # # spine_SLIP(model, data)
-    spine_pd_control(model, data, qdes=0.2)
+    # spine_pd_control(model, data, qdes=0)
     # spine_AD(model, data)
-    # spine_SLIP(model, data)
+    spine_SLIP(model, data)
     # print(forward_kinematics2(model, data,"FL")[2])
     
     
@@ -528,17 +548,7 @@ init_controller(model,data)
 
 #set the controller
 mj.set_mjcb_control(controller)
-forcetorque = np.zeros(6)
-contact_x = []
-contact_y = []
-contact_z = []
 
-
-    
-obs_x =[]
-obs_y =[]
-obs_z =[]
-last_time = 0
 
 with viewer.launch_passive(model, data) as viewer:
   # Close the viewer automatically after 30 wall-seconds.
@@ -563,7 +573,8 @@ with viewer.launch_passive(model, data) as viewer:
     if time_until_next_step > 0:
       time.sleep(time_until_next_step)
 
+
 plt.plot(delta)
-plt.plot(modes, label="Tolerance detection")
+# plt.plot(modes, label="Tolerance detection")
 plt.legend()
 plt.show()
