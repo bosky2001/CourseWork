@@ -8,6 +8,7 @@ from numpy.linalg import inv
 import os
 import matplotlib.pyplot as plt
 from enum import Enum
+import copy
 
 import time
 xml_path = 'twist.xml'
@@ -132,11 +133,11 @@ def FL_pose(model, data, leg_id, pose = np.array([0, -0.8, -1.6]) , posevel=np.a
 
     leg = Leg_id(model, leg_id, Fixed= True)
     
-    # Kp = np.array([2.5, 3.5, 1]) #FOR FIXED
-    # Kd = np.array([1, 2, 1])
+    Kp = np.array([2.5, 3.5, 1]) #FOR FIXED
+    Kd = np.array([1, 2, 1])
 
-    Kp = np.array([ 75, 75, 95]) 
-    Kd = np.array([ 1.5, 1.5, 1.5])
+    # Kp = np.array([ 75, 75, 95]) 
+    # Kd = np.array([ 1.5, 1.5, 1.5])
 
     p_error = np.array([abd_des - data.qpos[leg.abd_id], 
                         Upper_des - data.qpos[leg.Upper_id],
@@ -171,21 +172,21 @@ def get_vel(model, data, id):
 
 def theta(model, data, id):
 
-    roll = 0  #data.qpos[model.joint("x").id]
+    roll = 0 #data.qpos[model.joint("x").id]
 
     alpha = data.qpos[model.joint("spine").id]
 
     if id =="FL":
-        theta = roll + alpha/2
+        theta =  alpha - roll
 
     elif id == "FR":
-        theta = -roll +alpha/2
+        theta = alpha - roll
     
     elif id == "RL":
-        theta = roll - alpha/2
+        theta = roll 
     
     elif id == "RR":
-        theta = -roll -alpha/2
+        theta = roll 
     
     return theta
     
@@ -215,6 +216,8 @@ def forward_kinematics2(model, data, id):
     offset_k2t = np.array([0, 0, -l2])
     offset_h2k = np.array([0, 0, -l1])
     offset_a2h = np.array([0, a2h(id), 0])
+
+    offset_b2a = np.array([0.1675, 0.05, 0])
     
     k2t = Ry(qknee) @ offset_k2t
     
@@ -251,7 +254,7 @@ def Jq_c(model, data, id):
 
 nominal_z = -0.3
 
-def xyz_pose(model, data, leg_id, pose = np.array([0., 0, nominal_z]) , posevel=np.array([0, 0, 0])):
+def xyz_pose(model, data, leg_id, pose = np.array([0, 0, nominal_z]) , posevel=np.array([0, 0, 0]), ff = np.array([0, 0, 0])):
 
     X = forward_kinematics2(model, data, leg_id)
     J = Jq_c(model, data, leg_id)
@@ -264,7 +267,7 @@ def xyz_pose(model, data, leg_id, pose = np.array([0., 0, nominal_z]) , posevel=
     # Kp = np.array([2.5, 3.5, 1]) #FOR FIXED
     # Kd = np.array([1, 2, 1])
 
-    Kp = np.array([ 500, 500, 500]) 
+    Kp = np.array([ 200, 500, 500]) 
     Kd = np.array([ 5, 5, 5 ])
 
     # print(X)
@@ -275,15 +278,22 @@ def xyz_pose(model, data, leg_id, pose = np.array([0., 0, nominal_z]) , posevel=
     d_error =  np.array([posevel[0]-dX[0], posevel[1]-dX[1], posevel[2]-dX[2]])
     
     u = Kp*p_error + Kd*d_error
-    
-    tau = J.T@ (u+0*np.array([ 0,0,-130/2]))
-    print(X[2])
+
+    #np.array([ 0,0,-130/4])
+    tau = J.T@ (u + ff)
+    # print(tau)
     data.ctrl[leg.ctrl_range[0]] = tau[0]
     data.ctrl[leg.ctrl_range[1]] = tau[1]
     data.ctrl[leg.ctrl_range[2]] = tau[2]
 
 
 delta = []
+
+def clear_ctrl(model, data):
+    n = model.nu
+    for i in range(n):
+        data.ctrl[i] = 0
+
 def spine_AD(model, data, stance_z = nominal_z):
     
     _,_,z1  = forward_kinematics2(model, data, "FL")
@@ -297,11 +307,11 @@ def spine_AD(model, data, stance_z = nominal_z):
     dX1 = J1 @ data.qvel[leg1.abd_id:leg1.Lower_id+1]
     dX2 = J2 @ data.qvel[leg2.abd_id:leg2.Lower_id+1]
     
-    z = -0.5*(z1+z2)
-    zdot = -0.5*(dX1[2] + dX2[2])
+    z = 0.5*(z1+z2)
+    zdot = 0.5*(dX1[2] + dX2[2])
 
-    p = -stance_z
-    w = 5 #5
+    p = stance_z
+    w = 10
     phi = np.arctan2( w*w*(p-z),-zdot)
     delta_z = nominal_z - 0.5*(z1+z2)
     delta.append(delta_z[0,0])
@@ -309,8 +319,8 @@ def spine_AD(model, data, stance_z = nominal_z):
     
     # beta = 15
     # ka = 1
-    beta = 1
-    ka = 1
+    beta = 0
+    ka = 0
     #data.qpos[model.joint("spine").id]
     E = w*w*(p-z) - beta*zdot -ka*np.cos(phi)
     
@@ -323,14 +333,14 @@ def spine_AD(model, data, stance_z = nominal_z):
 def spine_pd_control(model, data, qdes =  0, qdotdes = 0):
     q = data.qpos[model.joint("spine").id]
     qdot =  data.qvel[model.joint("spine").id]
-    Kp = 150
-    Kd = 5
+    Kp = 10
+    Kd = 1
     u = Kp*(qdes-q) + Kd*(qdotdes-qdot)
     data.ctrl[model.actuator("Spine Torque").id] = u
 
-    # _,_,z  = forward_kinematics2(model, data,"FL")
-    # delta_z = abs(nominal_z - z)
-    # delta.append(delta_z[0,0])
+    _,_,z  = forward_kinematics2(model, data,"FL")
+    delta_z = abs(nominal_z - z)
+    delta.append(delta_z[0,0])
 
 mode = 0
 modes=[]
@@ -350,37 +360,50 @@ def spine_SLIP(model, data, stance_z = nominal_z):
 
     modes.append(mode)
 
-    
+    if data.ncon == 0:
+        gt_modes.append(0)
+    else :
+        gt_modes.append(1)
+
     #plot when actually in contact
-    
+    start = 0
 
     if mode == 0:
-       
-        # xyz_pose(model, data, "FL")
-        FL_pose(model, data, "FL", np.array([-0.1, 0.8, -1.6]))
-        # FL_pose(model, data, "RL", np.array([-0.1, 0.8, -1.6]))
-        # FL_pose(model, data, "FR", np.array([-0.1, 0.8, -1.6]))
-        FL_pose(model, data, "RL", np.array([0, 1.4, -3]))
-        FL_pose(model, data, "FR", np.array([0, 1.4, -3]))
-        FL_pose(model, data, "RR", np.array([0.1, 0.8, -1.6]))
-        # xyz_pose(model, data, "RR")
-        spine_pd_control(model, data, qdes= 0)
+        
+        xyz_pose(model, data, "FL")
+        xyz_pose(model, data, "FR", pose= np.array([ 0, 0, -0.15]))
+        xyz_pose(model, data, "RL", pose= np.array([ 0, 0, -0.15]))
+        xyz_pose(model, data, "RR")
+        
+        spine_pd_control(model, data, qdes= 0.1)
 
-        if delta_z >= tol and 0.5*(zdot1+zdot2)<0:
+        
+        if delta_z >= tol and (zdot1+zdot2)<0:
             mode = 1
+            start = time.time()
+            
 
     elif mode == 1:
         
+        xyz_pose(model, data, "FL", ff= np.array([0, 0, 0/2]))
+        xyz_pose(model, data, "FR", pose= np.array([ 0, 0, -0.15]))
+        xyz_pose(model, data, "RL", pose= np.array([ 0, 0, -0.15]))
+        xyz_pose(model, data, "RR", ff= np.array([0, 0, 0/2]))
         spine_AD(model, data)
+
         # FL_pose(model, data, "FL", np.array([-0.2, 0.8, -1.6]))
         # FL_pose(model, data, "RL", np.array([0, 1.4, -3]))
         # FL_pose(model, data, "FR", np.array([0, 1.4, -3]))
-
+        
         # FL_pose(model, data, "RR", np.array([0.2, 0.8, -1.6]))
         
-        if delta_z <= tol and 0.5*(zdot1+zdot2)>0:
-
+        start = time.time()
+        if delta_z <= tol and (zdot1+zdot2)>=0:
+            
+        # if (time.time()-start) >= 0.25:
+            # print(time.time()-start)
             mode = 0
+            start = time.time()
 
   
 def controller(model, data):
@@ -389,19 +412,24 @@ def controller(model, data):
     mimics the forces of a fixed joint before release
     """
 
+    # FL_pose(model, data, "FL", np.array([0, 0.8, -1.6]))
+    # FL_pose(model, data, "RL", np.array([0, 2.4, -1.54]))
+    # FL_pose(model, data, "FR", np.array([0, 2.4, -1.54]))
+    # FL_pose(model, data, "RR", np.array([0, 0.8, -1.6]))
     # FL_pose(model, data, "FL", np.array([-0.2, 0.8, -1.6]))
+
     # xyz_pose(model, data, "FL")
-    # xyz_pose(model, data, "FR")
-    # xyz_pose(model, data, "RL")
+    # xyz_pose(model, data, "FR", pose= np.array([ 0, 0, -0.15]))
+    # xyz_pose(model, data, "RL", pose= np.array([ 0, 0, -0.15]))
     # xyz_pose(model, data, "RR")
-    # FL_pose(model, data, "RL", np.array([0, 1.4, -3]))
-    # FL_pose(model, data, "FR", np.array([0, 1.4, -3]))
-    
-    # FL_pose(model, data, "RR", np.array([0.2, 0.8, -1.6]))
-    # spine_pd_control(model, data, qdes=0)
+
+    # spine_pd_control(model, data, qdes= 0.2)
+    # print(data.ncon)
     # spine_AD(model, data)
     spine_SLIP(model, data)
-    # print(forward_kinematics2(model, data,"FL")[2])
+
+    # print(forward_kinematics2(model, data,"FR"))
+    # print(data.ncon)
     
     
 
@@ -574,7 +602,8 @@ with viewer.launch_passive(model, data) as viewer:
       time.sleep(time_until_next_step)
 
 
-plt.plot(delta)
-# plt.plot(modes, label="Tolerance detection")
+# plt.plot(delta)
+plt.plot(modes, label="Tolerance detection")
+# plt.plot(gt_modes, label="Mujoco detection")
 plt.legend()
 plt.show()
