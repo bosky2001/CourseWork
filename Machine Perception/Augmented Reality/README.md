@@ -23,7 +23,7 @@ This repository invites you to delve into the world of augmented reality (AR) by
 
 **Virtual Object Placement:** Post-retrieval of the 3D relationship between the camera and the world, you'll have the leverage to embed arbitrary objects into the scene. Define the pixel positions to precisely dictate where these virtual objects should manifest.
 
-![vis](https://github.com/bosky2001/CourseWork/blob/main/Machine%20Perception/Augmented%20Reality/code/Vis.png)
+![vis](https://github.com/bosky2001/CourseWork/blob/main/Machine%20Perception/Augmented%20Reality/code/vis.png)
 
 ![VR_res-min](https://github.com/bosky2001/CourseWork/blob/main/Machine%20Perception/Augmented%20Reality/code/VR_res.gif)
 
