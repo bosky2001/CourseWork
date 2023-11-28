@@ -1,27 +1,31 @@
-# CIS580 HW2 
+# Augmented-Reality-Implementation-Camera-Pose-Recovery-Virtual-Object-Placement
+This repository dives into augmented reality (AR) by overlaying virtual objects onto a real-world video. Given a video with AprilTags and their coordinates, your goal is two-fold: 1) Determine camera pose using PnP with coplanar assumptions and P3P with the Procrustes problem. 2) Place virtual objects seamlessly in the scene. 
 
-To run this program:
 
-```
-cd code
-python main.py
-```
+**Introduction:**
 
-We also provided some helper flags. Please check `main.py` for details. You can generate your visualizations with either PnP or P3P algorithm, but you still need to implement both of them. Although you are not asked to implement the renderer, you are still encouraged to look through the code of renderer as you may need to renderer your results by yourself next time. 
+This repository invites you to delve into the world of augmented reality (AR) by designing an application that projects virtual object models into a real-world video sequence as if they coexist. The crux of the project is to deduce the camera's position and orientation in relation to a known object, paving the way for the seamless integration of virtual elements.
 
-PS: remember to complete the `est_homography.py` with the function you just wrote for HW1.
+**Given Resources:**
 
-## Debugging
+**Video Sequence:** The video provided has an AprilTag embedded in each frame. Renowned in robotics, AprilTags are pivotal in discerning the camera's pose.
 
-It's recommended to run the program with `--debug` when you start to work on this homework since the rendering takes about 2 mins to finish on a PC. 
+**Tag Details:** To streamline your workflow, the pixel coordinates of the four corners of the AprilTag are furnished, along with the tag's dimensions.
 
-Also, note that the main program has several other args you can set, please have a look at line 40 in the `main.py` for more details: You can pass `--solver PnP` or `--solver P3P` to the program to toggle between the solving methods.
+**Core Tasks:**
 
-Note, we also provide the `.vscode` launch configuration for you to easily debug in VSCode.
+**Camera Pose Recovery:**
 
-## Customization
+**Perspective-N-Point (PnP):** Utilizing the coplanar assumption, solve the PnP problem. This involves determining the camera's position and orientation by recognizing n points in the image and their corresponding world coordinates.
 
-You need to assign different values to  `click_point` in `main.py` to render the drill at different places. 
+**Perspective-three-point (P3P) & Procrustes:** Solve the P3P problem, followed by the Procrustes problem. The P3P extracts the camera's pose from three 2D-3D point correspondences, while the Procrustes aligns two sets of points optimally.
+
+
+**Virtual Object Placement:** Post-retrieval of the 3D relationship between the camera and the world, you'll have the leverage to embed arbitrary objects into the scene. Define the pixel positions to precisely dictate where these virtual objects should manifest.
+
+![vis](https://github.com/Saibernard/Augmented-Reality-Implementation-Camera-Pose-Recovery-Virtual-Object-Placement/assets/112599512/73938857-cdf2-4662-8959-f9b081fe7111)
+
+![VR_res-min](https://github.com/Saibernard/Augmented-Reality-Implementation-Camera-Pose-Recovery-Virtual-Object-Placement/assets/112599512/f119e918-e7a5-4476-bdbe-53e6e998f23c)
 
 
 
