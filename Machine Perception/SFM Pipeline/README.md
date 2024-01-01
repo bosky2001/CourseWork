@@ -7,7 +7,7 @@ This repository focuses on creating a 3D model from two 2D images of a castle us
 
 ## Second image:
 
-![image](data/0017_)
+![image](data/0017_2.png)
 
 
 ## Features
