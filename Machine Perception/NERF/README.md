@@ -6,7 +6,7 @@
 
 
 <img src=results.gif height="300" width="300" >
-![Gif](results.gif)
+
 
 ## Results
 
