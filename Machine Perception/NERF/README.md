@@ -12,7 +12,7 @@
 
 ![Loss](results.png)
 
-Generated image (left), target image (middle) and PSNR vs. iterations graph spanning over 3000 iterations. The model is able to reach 25 PSNR (Peak Signal to Noise Ratio) after 3000 iterations, and is able to perfectly learn the parameters of the 3D model.
+Generated image (left), target image (middle) and PSNR vs. iterations graph spanning over 3000 iterations. The model is able to reach 27 PSNR (Peak Signal to Noise Ratio) after 3000 iterations, and is able to perfectly learn the parameters of the 3D model.
 ## Method
 
 
