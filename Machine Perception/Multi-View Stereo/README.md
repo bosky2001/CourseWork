@@ -13,8 +13,9 @@ This repository showcases the development and implementation of an advanced Mult
 ![Raw](images.gif)
 
 ### 2 View Result
+![Raw](2View.gif)
 ### Multi View Result
-
+![Raw](Multiview.gif)
 ## Technical Details
 
 ### 1. Two-View Stereo:
