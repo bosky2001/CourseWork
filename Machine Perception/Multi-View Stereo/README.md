@@ -9,7 +9,11 @@ This repository contains an implementation of two-view and multi-view stereo alg
 This repository showcases the development and implementation of an advanced Multi-View Stereo Reconstruction system. Leveraging state-of-the-art techniques like Two-View Stereo and Plane-Sweep Stereo, the system adeptly transforms 2D image perspectives into intricate and accurate 3D reconstructions. The insights drawn from such spatial data representation have vast implications in the realm of digital image processing.
 
 
+### Input
+![Raw](images.gif)
 
+### 2 View Result
+### Multi View Result
 
 ## Technical Details
 
