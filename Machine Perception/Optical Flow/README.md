@@ -23,27 +23,27 @@ This repository serves as a valuable resource for advanced optical flow analysis
 
 - **Depth Mapping:** Transform pixel flow data, confidence metrics, and epipole values into depth insights at each pixel, visualized through a comprehensive depth map.
 - 
-### Threshold = 1:
-![depth_1](https://github.com/Saibernard/Optical-Flow-Analysis-and-Depth-Estimation-in-Image-Sequences/assets/112599512/73d1a393-825c-4876-955b-3c026ad360f8)
-
 ### Threshold = 10:
-![depth_10](https://github.com/Saibernard/Optical-Flow-Analysis-and-Depth-Estimation-in-Image-Sequences/assets/112599512/c864498a-ce7c-4522-a7ff-7abc3471c6b1)
+![depth_10](depthmap_10.png)
 
 ### Threshold = 30:
-![depth_30](https://github.com/Saibernard/Optical-Flow-Analysis-and-Depth-Estimation-in-Image-Sequences/assets/112599512/6d3fa2a8-ac53-48f5-9e10-0dba0354791e)
+![depth_30](depthmap_30.png)
+
+### Threshold = 50:
+![depth_50](depthmap_50.png)
 
 
 
 - **Planar Scene Motion Analysis:** Advanced exploration of the motion exhibited by planar segments within the scene.
 
-### Threshold = 1:
-![Figure_1](https://github.com/Saibernard/Optical-Flow-Analysis-and-Depth-Estimation-in-Image-Sequences/assets/112599512/fff13362-6694-4138-86d2-5305c58f0f41)
-
 ### Threshold = 10:
-![Figure_10](https://github.com/Saibernard/Optical-Flow-Analysis-and-Depth-Estimation-in-Image-Sequences/assets/112599512/4c948582-88cb-4b68-a92a-c258779bcb5b)
+![Figure_10](flow_10.png)
 
 ### Threshold = 30:
-![Figure_30](https://github.com/Saibernard/Optical-Flow-Analysis-and-Depth-Estimation-in-Image-Sequences/assets/112599512/9663d077-46db-4f5f-8daf-bd2c4243e340)
+![Figure_30](flow_30.png)
+
+### Threshold = 50:
+![Figure_50](flow_50.png)
 
 
 ## Overview
